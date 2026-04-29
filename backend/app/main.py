@@ -1,4 +1,4 @@
-"""FastAPI application entrypoint for rag-flight-lab (Phase 1).
+"""FastAPI application entrypoint for rag-flight-lab.
 
 Phase 1 responsibilities:
 - expose `GET /health`
@@ -6,25 +6,48 @@ Phase 1 responsibilities:
 - on startup: wait for the database, ensure schema exists, and seed data
   if the database is empty.
 
-Later phases will add ingestion, vector search, and the agent endpoints.
+Phase 4 adds the embedding ingestion pipeline and pgvector similarity
+search:
+- `POST /ingest` runs a bounded ingestion pass.
+- `POST /search/vector` performs similarity search with structured filters.
+- A bounded startup ingestion task runs in the background so the API/UI
+  is not blocked while the initial ~50k seed logs get embedded.
+
+Later phases will add the agent endpoint.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 
 import anyio
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 
 from .config import get_settings
 from .database import engine, session_scope
+from .ingestion import ingest_unembedded_logs
 from .models import FlightLog, Flight, Incident
-from .schemas import HealthResponse, StatsResponse
+from .schemas import (
+    HealthResponse,
+    IngestRequest,
+    IngestResponse,
+    StatsResponse,
+    VectorSearchRequest,
+    VectorSearchResponse,
+    VectorSearchResult,
+)
 from .seed import seed_database
+from .vector_search import (
+    VectorSearchDependencyError,
+    VectorSearchError,
+    search_logs,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -122,7 +145,53 @@ async def lifespan(app: FastAPI):
         _run_startup_seed()
 
     await anyio.to_thread.run_sync(_startup)
-    yield
+
+    # Kick off a bounded ingestion pass in the background. Running it as a
+    # background task (rather than awaiting) ensures `docker compose up`
+    # reaches a healthy `/health` quickly even when 50k seed logs still
+    # need embeddings. The pass is naturally bounded by
+    # `STARTUP_INGEST_LIMIT`; a threading.Event lets us request a clean
+    # cooperative stop on shutdown without waiting for the worker thread
+    # to finish on its own (anyio cancellation does not interrupt threads).
+    stop_event = threading.Event()
+    ingest_task = asyncio.create_task(_run_startup_ingestion(stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        if not ingest_task.done():
+            try:
+                # Give the worker a brief grace period to observe the flag
+                # between batches, then move on regardless.
+                await asyncio.wait_for(asyncio.shield(ingest_task), timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # pragma: no cover - best-effort
+                pass
+
+
+async def _run_startup_ingestion(stop_event: threading.Event) -> None:
+    settings = get_settings()
+    if settings.startup_ingest_limit <= 0:
+        logger.info("Startup ingestion disabled (STARTUP_INGEST_LIMIT<=0).")
+        return
+
+    def _do_ingest() -> dict:
+        result = ingest_unembedded_logs(
+            limit=settings.startup_ingest_limit,
+            should_stop=stop_event.is_set,
+        )
+        return result.to_dict()
+
+    logger.info(
+        "Starting bounded startup ingestion (limit=%d, batch_size=%d)…",
+        settings.startup_ingest_limit,
+        settings.ingest_batch_size,
+    )
+    try:
+        result = await anyio.to_thread.run_sync(_do_ingest, abandon_on_cancel=True)
+    except Exception as exc:  # pragma: no cover - defensive, logs and exits
+        logger.warning("Startup ingestion failed: %s", exc)
+        return
+    logger.info("Startup ingestion finished: %s", result)
 
 
 app = FastAPI(title="rag-flight-lab", version="0.1.0", lifespan=lifespan)
@@ -161,4 +230,50 @@ def stats() -> StatsResponse:
         incidents=incidents,
         embedded_logs=embedded,
         unembedded_logs=logs - embedded,
+    )
+
+
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest(request: IngestRequest | None = None) -> IngestResponse:
+    """Run a bounded ingestion pass over logs without embeddings."""
+    payload = request or IngestRequest()
+
+    def _run() -> dict:
+        result = ingest_unembedded_logs(
+            limit=payload.limit,
+            batch_size=payload.batch_size,
+        )
+        return result.to_dict()
+
+    result = await anyio.to_thread.run_sync(_run)
+    return IngestResponse(**result)
+
+
+@app.post("/search/vector", response_model=VectorSearchResponse)
+async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
+    """Embed `query` and return the most similar flight logs."""
+
+    def _run() -> list[dict]:
+        with session_scope() as session:
+            return search_logs(
+                session=session,
+                query_text=request.query,
+                top_k=request.top_k,
+                filters=request.filters,
+            )
+
+    try:
+        rows = await anyio.to_thread.run_sync(_run)
+    except VectorSearchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VectorSearchDependencyError as exc:
+        # Upstream embedding service unavailable / failing — surface as a
+        # 503 so callers and monitoring treat it as a transient server-side
+        # condition rather than a bad request.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return VectorSearchResponse(
+        query=request.query,
+        top_k=request.top_k,
+        results=[VectorSearchResult(**row) for row in rows],
     )
