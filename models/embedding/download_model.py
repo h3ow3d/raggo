@@ -10,6 +10,7 @@ out to the network.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -19,6 +20,11 @@ from sentence_transformers import SentenceTransformer
 
 DEFAULT_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_OUTPUT_DIR = "/models/embedding"
+# Filename used to persist build-time provenance metadata next to the
+# weights. The runtime reads this to report the *baked* model identifier
+# rather than trusting an environment variable that may have drifted from
+# what was actually downloaded.
+METADATA_FILENAME = "rag_flight_lab_model.json"
 
 
 def main() -> int:
@@ -45,9 +51,19 @@ def main() -> int:
         )
         return 1
 
-    print("[download_model] Done.", flush=True)
+    # Record build-time provenance so the runtime can report the *actual*
+    # baked model identifier (and dimension) regardless of what env vars
+    # the operator passes at runtime.
+    metadata = {
+        "model_name": model_name,
+        "embedding_dim": int(model.get_sentence_embedding_dimension()),
+    }
+    (output_dir / METADATA_FILENAME).write_text(json.dumps(metadata, indent=2))
+
+    print(f"[download_model] Done. metadata={metadata}", flush=True)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

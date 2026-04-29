@@ -10,9 +10,11 @@
 #   - embedding-model has NO host port mapping and is attached only to the
 #     internal `model_net` network. It cannot be reached from the host or
 #     from the frontend.
-#   - `database_net` and `model_net` are declared as `internal: true` so
-#     containers attached to them cannot reach the host network or the
-#     internet. The backend is the only service bridging those networks.
+#   - `database_net` and `model_net` are declared as `internal: true`.
+#     Services attached only to those internal networks (such as postgres
+#     and embedding-model) are isolated from the host network/internet.
+#     The backend intentionally bridges `frontend_net` with those internal
+#     networks, so it can still reach the host/internet via `frontend_net`.
 #   - The backend exposes port 8000 to the host for development only.
 
 services:

@@ -27,6 +27,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /build
 
+# Install torch from the dedicated CPU-only PyTorch index *first*, scoped
+# to torch alone via --index-url. Then install the rest from PyPI without
+# the torch index in scope, so unrelated packages can never be resolved
+# from download.pytorch.org (supply-chain hardening).
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.6.0+cpu
+
 COPY requirements.txt /build/requirements.txt
 RUN pip install --no-cache-dir -r /build/requirements.txt
 
@@ -56,6 +64,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_DATASETS_OFFLINE=1
 
 WORKDIR /app
+
+# Install torch from the CPU-only PyTorch index (scoped to torch) before
+# the rest of the deps, mirroring the weights stage so the runtime sees
+# identical library versions and avoids cross-index resolution.
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.6.0+cpu
 
 # Install runtime Python deps. Same requirements file as the weights stage
 # so the loader sees identical library versions.
