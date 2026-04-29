@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
+    # --- Domain selection -------------------------------------------------
+    raggo_domain: str = Field(default="flights", alias="RAGGO_DOMAIN")
+
     # --- Database ---------------------------------------------------------
     postgres_host: str = Field(default="postgres", alias="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, alias="POSTGRES_PORT")
@@ -31,7 +34,7 @@ class Settings(BaseSettings):
         alias="EMBEDDING_MODEL_NAME",
     )
 
-    # --- Seed data sizes --------------------------------------------------
+    # --- Seed data sizes (kept for backward compatibility with flights domain)
     seed_flight_count: int = Field(default=5000, alias="SEED_FLIGHT_COUNT")
     seed_log_count: int = Field(default=50000, alias="SEED_LOG_COUNT")
     seed_incident_count: int = Field(default=500, alias="SEED_INCIDENT_COUNT")

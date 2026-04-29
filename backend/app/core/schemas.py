@@ -1,4 +1,8 @@
-"""Minimal Pydantic schemas exposed by the Phase 1 API."""
+"""Generic Pydantic schemas exposed by the raggo API.
+
+These schemas are domain-agnostic. Domain-specific fields flow through
+permissive containers (QueryEvidence with extra="allow", VectorHit metadata dict).
+"""
 
 from __future__ import annotations
 
@@ -14,14 +18,11 @@ class HealthResponse(BaseModel):
 
 
 class StatsResponse(BaseModel):
-    flights: int
-    flight_logs: int
-    incidents: int
-    embedded_logs: int
-    unembedded_logs: int
+    """Generic stats response. Domain determines the fields."""
+    model_config = {"extra": "allow"}
 
 
-# --- Phase 4: ingestion -----------------------------------------------------
+# --- Ingestion -------------------------------------------------------------
 
 
 class IngestRequest(BaseModel):
@@ -31,7 +32,7 @@ class IngestRequest(BaseModel):
         default=None,
         ge=0,
         description=(
-            "Maximum number of unembedded logs to process in this run. "
+            "Maximum number of unembedded items to process in this run. "
             "Defaults to STARTUP_INGEST_LIMIT when omitted."
         ),
     )
@@ -44,6 +45,10 @@ class IngestRequest(BaseModel):
             "within the embedding service's default MAX_BATCH."
         ),
     )
+    resource: Optional[str] = Field(
+        default=None,
+        description="Optional resource name. Defaults to all embeddable resources.",
+    )
 
 
 class IngestResponse(BaseModel):
@@ -52,43 +57,53 @@ class IngestResponse(BaseModel):
     errors: List[str] = Field(default_factory=list)
 
 
-# --- Phase 4: vector search -------------------------------------------------
+# --- Vector search -------------------------------------------------
 
 
 class VectorSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Free-text search query.")
     top_k: int = Field(default=10, ge=1, le=100)
+    resource: Optional[str] = Field(
+        default=None,
+        description="Resource name to search. Defaults to first embeddable resource.",
+    )
     filters: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
-            "Optional structured filters. Allowed keys: severity, "
-            "source_system, log_type, flight_id."
+            "Optional structured filters. Allowed keys depend on the "
+            "resource's FilterSpec."
         ),
     )
 
 
-class VectorSearchResult(BaseModel):
-    log_id: int
-    flight_id: int
-    flight_number: str
-    origin: str
-    destination: str
-    log_time: datetime
-    log_type: str
-    source_system: str
-    severity: str
-    message: str
-    similarity: Optional[float]
-    distance: Optional[float]
+class VectorHit(BaseModel):
+    """A single vector search result.
+    
+    Generic shape: id, score, distance, text, and a metadata dict
+    containing domain-specific fields projected by the resource's
+    evidence_projection callable.
+    """
+    id: int
+    score: Optional[float] = Field(
+        default=None,
+        description="Cosine similarity in [-1, 1], higher is better.",
+    )
+    distance: Optional[float] = Field(
+        default=None,
+        description="Cosine distance in [0, 2], lower is better.",
+    )
+    text: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class VectorSearchResponse(BaseModel):
     query: str
+    resource: str
     top_k: int
-    results: List[VectorSearchResult]
+    results: List[VectorHit]
 
 
-# --- Phase 5: agent / query -------------------------------------------------
+# --- Agent / query -------------------------------------------------
 
 
 class QueryRequest(BaseModel):
@@ -107,9 +122,9 @@ class QueryRequest(BaseModel):
 class QueryEvidence(BaseModel):
     """Loosely typed evidence item.
 
-    The agent emits several evidence shapes (flight logs, incidents,
-    flights, airport delay counts). Rather than a noisy union we expose
-    a permissive schema and rely on the ``type`` field for routing.
+    The agent emits several evidence shapes depending on the domain.
+    Rather than a noisy union we expose a permissive schema and rely
+    on the ``type`` field for routing.
     """
 
     type: str
@@ -126,6 +141,10 @@ class QueryResponse(BaseModel):
 
 
 # --- Phase 6: flights & logs (frontend support) -----------------------------
+# NOTE: These are flight-domain-specific shapes carried over from the pre-
+# refactor codebase to keep the existing frontend working while the domain
+# abstraction stabilises. A future phase will move them into a domain-
+# specific endpoint surface so `core/schemas.py` is fully domain-agnostic.
 
 
 class FlightSummary(BaseModel):
@@ -183,4 +202,3 @@ class CreateLogResponse(BaseModel):
     message: str
     embedded: bool
     embedding_error: Optional[str] = None
-

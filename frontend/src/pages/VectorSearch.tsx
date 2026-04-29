@@ -97,29 +97,43 @@ export default function VectorSearch() {
             {response.results.length === 1 ? "" : "es"}
           </h2>
           {response.results.length === 0 && (
-            <div className="muted">No matching logs.</div>
+            <div className="muted">No matches.</div>
           )}
           <div className="result-list">
-            {response.results.map((r) => (
-              <div key={r.log_id} className="result">
-                <div className="result-meta">
-                  <span>log #{r.log_id}</span>
-                  <span>
-                    flight {r.flight_number} · {r.origin} → {r.destination}
-                  </span>
-                  <span>{new Date(r.log_time).toLocaleString()}</span>
-                  <span>{r.source_system}</span>
-                  <span className={`severity-${r.severity}`}>{r.severity}</span>
-                  <span>
-                    similarity:{" "}
-                    {r.similarity !== null && r.similarity !== undefined
-                      ? r.similarity.toFixed(3)
-                      : "—"}
-                  </span>
+            {response.results.map((r) => {
+              const m = r.metadata || {};
+              const flightNumber = (m.flight_number as string | undefined) ?? null;
+              const origin = (m.origin as string | undefined) ?? null;
+              const destination = (m.destination as string | undefined) ?? null;
+              const logTime = (m.log_time as string | undefined) ?? null;
+              const sourceSystem = (m.source_system as string | undefined) ?? null;
+              const severity = (m.severity as string | undefined) ?? null;
+              return (
+                <div key={r.id} className="result">
+                  <div className="result-meta">
+                    <span>#{r.id}</span>
+                    {flightNumber && (
+                      <span>
+                        flight {flightNumber}
+                        {origin && destination ? ` · ${origin} → ${destination}` : ""}
+                      </span>
+                    )}
+                    {logTime && <span>{new Date(logTime).toLocaleString()}</span>}
+                    {sourceSystem && <span>{sourceSystem}</span>}
+                    {severity && (
+                      <span className={`severity-${severity}`}>{severity}</span>
+                    )}
+                    <span>
+                      similarity:{" "}
+                      {r.score !== null && r.score !== undefined
+                        ? r.score.toFixed(3)
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className="result-message">{r.text}</div>
                 </div>
-                <div className="result-message">{r.message}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

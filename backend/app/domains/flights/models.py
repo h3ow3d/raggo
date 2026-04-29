@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from .config import get_settings
+from app.core.config import get_settings
 
 
 class Base(DeclarativeBase):
