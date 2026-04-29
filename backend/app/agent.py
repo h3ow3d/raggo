@@ -37,13 +37,7 @@ from .model_clients import (
     GenerationClient,
     GenerationServiceError,
 )
-from .safe_sql_tools import (
-    SAFE_TOOLS,
-    get_delayed_flights,
-    get_incidents_by_severity,
-    get_flights_by_airport,
-    get_top_delay_airports,
-)
+from .safe_sql_tools import SAFE_TOOLS
 from .vector_search import (
     VectorSearchDependencyError,
     VectorSearchError,
@@ -500,7 +494,19 @@ def run(
     evidence: List[Dict[str, Any]] = []
 
     if intent.strategy in {"sql_only", "vector_and_sql"}:
-        evidence.extend(_run_sql_calls(session, intent.sql_calls, trace_sql, errors))
+        # Clamp every planned SQL call's `limit` to the configured cap so
+        # `AGENT_MAX_SQL_RESULTS` is actually enforced (the per-tool
+        # `MAX_LIMIT` in safe_sql_tools is a separate, stricter ceiling).
+        clamped_calls: List[Tuple[str, Dict[str, Any]]] = []
+        for name, kwargs in intent.sql_calls:
+            kwargs = dict(kwargs)
+            existing = kwargs.get("limit")
+            if existing is None:
+                kwargs["limit"] = settings.agent_max_sql_results
+            else:
+                kwargs["limit"] = min(int(existing), settings.agent_max_sql_results)
+            clamped_calls.append((name, kwargs))
+        evidence.extend(_run_sql_calls(session, clamped_calls, trace_sql, errors))
 
     if intent.strategy in {"vector_only", "vector_and_sql"} and intent.vector_query:
         evidence.extend(

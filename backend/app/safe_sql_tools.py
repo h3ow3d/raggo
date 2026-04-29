@@ -292,13 +292,14 @@ def get_top_delay_airports(
     dest_q = select(delayed.c.destination.label("airport")).select_from(delayed)
     union_q = origin_q.union_all(dest_q).subquery()
 
+    delay_count = func.count().label("delay_count")
     stmt = (
         select(
             union_q.c.airport.label("airport"),
-            func.count().label("delay_count"),
+            delay_count,
         )
         .group_by(union_q.c.airport)
-        .order_by(desc("delay_count"))
+        .order_by(delay_count.desc())
         .limit(eff_limit)
     )
 
