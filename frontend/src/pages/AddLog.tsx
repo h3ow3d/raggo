@@ -29,10 +29,12 @@ export default function AddLog() {
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
     api
       .listFlights(debouncedSearch || undefined, 25)
       .then((r) => {
-        if (!cancelled) setFlights(r.results);
+        if (cancelled) return;
+        setFlights(r.results);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));

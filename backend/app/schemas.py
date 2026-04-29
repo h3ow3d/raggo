@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -159,6 +159,18 @@ class CreateLogRequest(BaseModel):
     message: str = Field(..., min_length=1)
     log_time: Optional[datetime] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("log_type", "source_system", "severity", "message")
+    @classmethod
+    def _strip_and_require_non_empty(cls, value: str) -> str:
+        # `min_length=1` only checks the raw value; whitespace-only inputs
+        # would otherwise pass validation and be persisted as empty
+        # strings after stripping. Trim once here and reject if nothing
+        # is left.
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty or whitespace-only")
+        return stripped
 
 
 class CreateLogResponse(BaseModel):
