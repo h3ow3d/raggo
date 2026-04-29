@@ -73,6 +73,24 @@ services:
       - database_net
       - model_net
 
+  frontend:
+    # React + Vite SPA. The image is built in two stages: a node builder
+    # produces the static assets, and an nginx runtime serves them while
+    # proxying `/api/*` to the backend over `frontend_net`. The frontend
+    # is intentionally NOT attached to `database_net` or `model_net`, so
+    # it cannot reach PostgreSQL, the embedding model, or the generation
+    # model directly.
+    build:
+      context: ./frontend
+    image: rag-flight-lab/frontend:latest
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - frontend_net
+
   embedding-model:
     # Build the multi-stage image: the `weights` stage downloads the
     # configured sentence-transformers model at build time and the runtime

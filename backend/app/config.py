@@ -86,6 +86,25 @@ class Settings(BaseSettings):
         alias="GENERATION_MODEL_NAME",
     )
 
+    # --- CORS ------------------------------------------------------------
+    # Comma-separated list of origins allowed to call the backend. The
+    # default covers the bundled production frontend (same-origin via
+    # nginx on FRONTEND_PORT 3000) and the Vite dev server. The wildcard
+    # value "*" is honoured but discouraged: the local-first stack is
+    # designed to be reachable only from a developer's machine, and a
+    # wildcard would let any web page they visit read backend responses.
+    cors_allow_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+        alias="CORS_ALLOW_ORIGINS",
+    )
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        raw = (self.cors_allow_origins or "").strip()
+        if not raw:
+            return []
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
     @property
     def database_url(self) -> str:
         # Use SQLAlchemy's URL builder so credentials containing reserved

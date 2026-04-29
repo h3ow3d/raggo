@@ -24,17 +24,24 @@ import threading
 import time
 from contextlib import asynccontextmanager
 
+from datetime import datetime, timezone
+
 import anyio
-from fastapi import FastAPI, HTTPException
-from sqlalchemy import func, select, text
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import OperationalError
 
 from .config import get_settings
 from .database import engine, session_scope
-from .ingestion import ingest_unembedded_logs
+from .ingestion import embed_log_by_id, ingest_unembedded_logs
 from .models import FlightLog, Flight, Incident
 from . import agent as agent_module
 from .schemas import (
+    CreateLogRequest,
+    CreateLogResponse,
+    FlightListResponse,
+    FlightSummary,
     HealthResponse,
     IngestRequest,
     IngestResponse,
@@ -200,6 +207,33 @@ async def _run_startup_ingestion(stop_event: threading.Event) -> None:
 
 app = FastAPI(title="rag-flight-lab", version="0.1.0", lifespan=lifespan)
 
+# CORS is allowlist-based to avoid letting arbitrary websites read
+# responses from a backend bound to localhost. The bundled production
+# frontend talks to the backend same-origin via nginx (`/api/*`), so it
+# does not actually need CORS; the allowlist exists for `npm run dev`
+# and for direct access to the dev backend port. The list can be
+# overridden via `CORS_ALLOW_ORIGINS` (comma-separated). An empty value
+# disables cross-origin access entirely.
+_cors_origins = get_settings().cors_allow_origin_list
+if _cors_origins:
+    # The bundled production frontend talks to the backend same-origin
+    # via nginx (`/api/*`) and does not need CORS; the allowlist exists
+    # for `npm run dev` and direct access to the dev backend port. The
+    # list can be overridden via `CORS_ALLOW_ORIGINS` (comma-separated).
+    # An empty value disables cross-origin access entirely. The
+    # explicit "*" opt-in is honoured but discouraged: a backend bound
+    # to localhost should not let arbitrary websites read its responses.
+    _cors_kwargs: dict[str, object] = {
+        "allow_credentials": False,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+    if "*" in _cors_origins:
+        _cors_kwargs["allow_origins"] = ["*"]
+    else:
+        _cors_kwargs["allow_origins"] = _cors_origins
+    app.add_middleware(CORSMiddleware, **_cors_kwargs)
+
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
@@ -311,4 +345,117 @@ async def query(request: QueryRequest) -> QueryResponse:
         answer=result.answer,
         evidence=[QueryEvidence(**item) for item in result.evidence],
         agent_trace=result.agent_trace,
+    )
+
+
+# --- Phase 6: flight selector + log creation -------------------------------
+
+
+_VALID_LOG_SEVERITIES = {"info", "warning", "critical"}
+
+
+@app.get("/flights", response_model=FlightListResponse)
+def list_flights(
+    search: str | None = Query(
+        default=None,
+        max_length=64,
+        description=(
+            "Optional case-insensitive substring match on flight number, "
+            "origin, or destination. Whitespace-only values are ignored."
+        ),
+    ),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> FlightListResponse:
+    """Lightweight flight listing used by the frontend Add Flight Log selector."""
+    term = (search or "").strip()
+    with session_scope() as session:
+        stmt = select(Flight).order_by(Flight.scheduled_departure.desc())
+        if term:
+            pattern = f"%{term}%"
+            stmt = stmt.where(
+                or_(
+                    Flight.flight_number.ilike(pattern),
+                    Flight.origin.ilike(pattern),
+                    Flight.destination.ilike(pattern),
+                )
+            )
+        stmt = stmt.limit(limit)
+        rows = list(session.scalars(stmt))
+        return FlightListResponse(
+            results=[
+                FlightSummary(
+                    id=f.id,
+                    flight_number=f.flight_number,
+                    airline=f.airline,
+                    origin=f.origin,
+                    destination=f.destination,
+                    scheduled_departure=f.scheduled_departure,
+                    status=f.status,
+                )
+                for f in rows
+            ]
+        )
+
+
+@app.post("/logs", response_model=CreateLogResponse, status_code=201)
+async def create_log(request: CreateLogRequest) -> CreateLogResponse:
+    """Create a new flight log and trigger embedding for that single row."""
+    # The Pydantic validator on CreateLogRequest already trims and
+    # requires non-empty values for the string fields.
+    severity = request.severity.lower()
+    if severity not in _VALID_LOG_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {sorted(_VALID_LOG_SEVERITIES)}",
+        )
+
+    log_time = request.log_time or datetime.now(timezone.utc)
+
+    def _create() -> int:
+        with session_scope() as session:
+            flight = session.get(Flight, request.flight_id)
+            if flight is None:
+                raise ValueError(f"flight {request.flight_id} not found")
+            log = FlightLog(
+                flight_id=request.flight_id,
+                log_time=log_time,
+                log_type=request.log_type,
+                source_system=request.source_system,
+                severity=severity,
+                message=request.message,
+                structured_metadata=request.metadata or {},
+            )
+            session.add(log)
+            session.flush()
+            return int(log.id)
+
+    try:
+        log_id = await anyio.to_thread.run_sync(_create)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # Best-effort single-row ingestion. If the embedding service is
+    # unavailable the log is still persisted and `embedding_error` is
+    # populated so the frontend can surface it; the next ingestion pass
+    # (startup or `POST /ingest`) will retry the embedding.
+    embedded = False
+    embedding_error: str | None = None
+    try:
+        embedded, embedding_error = await anyio.to_thread.run_sync(
+            embed_log_by_id, log_id
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Single-row ingestion for log %s failed: %s", log_id, exc)
+        embedding_error = str(exc)
+
+    return CreateLogResponse(
+        id=log_id,
+        flight_id=request.flight_id,
+        log_time=log_time,
+        log_type=request.log_type,
+        source_system=request.source_system,
+        severity=severity,
+        message=request.message,
+        embedded=embedded,
+        embedding_error=embedding_error,
     )

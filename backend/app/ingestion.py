@@ -145,10 +145,20 @@ def ingest_unembedded_logs(
     return result
 
 
-def embed_log_by_id(log_id: int, client: Optional[EmbeddingClient] = None) -> bool:
-    """Embed a single log by id. Returns True if it was (re)embedded.
+def embed_log_by_id(
+    log_id: int, client: Optional[EmbeddingClient] = None
+) -> tuple[bool, Optional[str]]:
+    """Embed a single log by id.
 
-    Useful when a new log is submitted via `POST /logs`: ingestion can
+    Returns a ``(embedded, error)`` tuple:
+
+    * ``embedded`` is True when the log was (re)embedded.
+    * ``error`` carries a human-readable reason when embedding was not
+      performed, so callers (e.g. the ``POST /logs`` handler) can
+      surface transient failures to the UI. ``error`` is ``None`` on
+      success, and also ``None`` when the log id simply does not exist.
+
+    Useful when a new log is submitted via ``POST /logs``: ingestion can
     be triggered for just that row instead of scanning the full table.
     """
     settings = get_settings()
@@ -158,12 +168,12 @@ def embed_log_by_id(log_id: int, client: Optional[EmbeddingClient] = None) -> bo
         with session_scope() as session:
             log = session.get(FlightLog, log_id)
             if log is None:
-                return False
+                return False, None
             try:
                 embed_result = embedding_client.embed([log.message])
             except EmbeddingServiceError as exc:
                 logger.warning("Failed to embed log %s: %s", log_id, exc)
-                return False
+                return False, f"embedding service unavailable: {exc}"
             if embed_result.dim != settings.embedding_dim:
                 logger.error(
                     "Refusing to embed log %s: dim %s != configured %s",
@@ -171,12 +181,15 @@ def embed_log_by_id(log_id: int, client: Optional[EmbeddingClient] = None) -> bo
                     embed_result.dim,
                     settings.embedding_dim,
                 )
-                return False
+                return False, (
+                    f"embedding dimension mismatch ({embed_result.dim} != "
+                    f"{settings.embedding_dim})"
+                )
             log.embedding = embed_result.embeddings[0]
             log.embedding_model = embed_result.model
             log.embedding_dim = embed_result.dim
             log.embedded_at = datetime.now(timezone.utc)
-            return True
+            return True, None
     finally:
         if owns_client:
             embedding_client.close()
