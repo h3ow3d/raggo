@@ -337,11 +337,17 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 1337) ->
     flight_rows = (_generate_flight_row(rng, now) for _ in range(flight_count))
     inserted_flights = _bulk_insert(session, Flight, flight_rows)
 
-    # Re-load flight identifiers (just id + scheduled_departure + flight_number
-    # + origin/destination for log/incident generation context).
-    flights: list[Flight] = list(
-        session.scalars(select(Flight)).all()
-    )
+    # Re-load only the flight identifiers/columns needed to generate logs
+    # and incidents, instead of hydrating full ORM objects for every row.
+    flights = session.execute(
+        select(
+            Flight.id,
+            Flight.flight_number,
+            Flight.origin,
+            Flight.destination,
+            Flight.scheduled_departure,
+        )
+    ).all()
     if not flights:
         logger.warning("No flights present after insert; aborting log/incident seed.")
         return {

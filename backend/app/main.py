@@ -15,6 +15,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
+import anyio
 from fastapi import FastAPI
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
@@ -111,10 +112,16 @@ def _run_startup_seed() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _wait_for_database()
-    _ensure_pgvector_extension()
-    _validate_embedding_dim()
-    _run_startup_seed()
+    # The startup work is intentionally blocking (sync SQLAlchemy + a sleep
+    # retry loop while the database container becomes ready). Run it in a
+    # worker thread so we don't block the asyncio event loop during boot.
+    def _startup() -> None:
+        _wait_for_database()
+        _ensure_pgvector_extension()
+        _validate_embedding_dim()
+        _run_startup_seed()
+
+    await anyio.to_thread.run_sync(_startup)
     yield
 
 
