@@ -95,19 +95,21 @@ def _run_init_sql_if_needed(domain: DomainPack) -> None:
         logger.info("Domain table '%s' exists; skipping init.sql.", table_name)
         return
     
-    if not domain.init_sql_path or not domain.init_sql_path.exists():
+    from pathlib import Path as _Path
+    init_sql_path = _Path(domain.init_sql_path) if domain.init_sql_path else None
+    if init_sql_path is None or not init_sql_path.exists():
         logger.warning("Domain init.sql not found at %s", domain.init_sql_path)
         return
     
-    logger.info("Running domain init.sql from %s…", domain.init_sql_path)
-    sql_content = domain.init_sql_path.read_text()
+    logger.info("Running domain init.sql from %s…", init_sql_path)
+    sql_content = init_sql_path.read_text()
     
+    # Execute the whole file in one go. Splitting on ';' is unsafe because
+    # PL/pgSQL DO blocks (used for conditional index creation) contain
+    # semicolons inside `$$ ... $$` quoted bodies. psycopg supports
+    # multi-statement scripts via `exec_driver_sql`.
     with engine.begin() as conn:
-        # Execute each statement separately
-        for statement in sql_content.split(";"):
-            statement = statement.strip()
-            if statement:
-                conn.execute(text(statement))
+        conn.exec_driver_sql(sql_content)
     
     logger.info("Domain init.sql executed successfully.")
 

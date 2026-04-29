@@ -12,9 +12,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.domain import DomainPack, DisplayMetadata, EmbeddableResource
+from app.core.domain import DomainPack, DisplayMetadata, EmbeddableResource, FilterSpec
 from app.domains.support_tickets.intent_rules import INTENT_RULES, default_plan
-from app.domains.support_tickets.models import SupportTicket, TicketMessage
+from app.domains.support_tickets.models import Base, SupportTicket, TicketMessage
 from app.domains.support_tickets.prompts import DOMAIN_CONTEXT, format_evidence
 from app.domains.support_tickets.seed import has_existing_data, seed_database
 from app.domains.support_tickets.sql_tools import SQL_TOOLS
@@ -41,13 +41,20 @@ def _ticket_message_evidence_projection(row: TicketMessage) -> Dict[str, Any]:
 TICKET_MESSAGES_RESOURCE = EmbeddableResource(
     name="ticket_messages",
     model=TicketMessage,
+    text_column="body",
     embedding_column="embedding",
+    embedding_model_column="embedding_model",
+    embedding_dim_column="embedding_dim",
+    embedded_at_column="embedded_at",
+    filter_spec=FilterSpec(columns={
+        "author": "author",
+        "ticket_id": "ticket_id",
+    }),
     evidence_projection=_ticket_message_evidence_projection,
     joins=(
         # Join to SupportTicket to include ticket context in evidence
         (SupportTicket, lambda tm, st: st.id == tm.ticket_id),
     ),
-    filter_specs=(),
 )
 
 
@@ -81,21 +88,28 @@ def _stats(session: Session) -> Dict[str, int]:
 
 DOMAIN = DomainPack(
     name="support_tickets",
-    display=DisplayMetadata(
-        title="Support Tickets",
-        description="Customer support ticket operations with ticket and message search",
-        version="1.0.0",
-    ),
-    domain_context=DOMAIN_CONTEXT,
+    sqlalchemy_base=Base,
+    init_sql_path=str(Path(__file__).parent / "init.sql"),
     embeddable_resources=(TICKET_MESSAGES_RESOURCE,),
     sql_tools=SQL_TOOLS,
     intent_rules=INTENT_RULES,
-    default_intent_plan=default_plan,
-    evidence_formatter=format_evidence,
-    stats=_stats,
-    has_existing_data=has_existing_data,
     seed=seed_database,
-    init_sql_path=Path(__file__).parent / "init.sql",
+    has_existing_data=has_existing_data,
+    stats=_stats,
+    domain_context=DOMAIN_CONTEXT,
+    evidence_formatter=format_evidence,
+    display=DisplayMetadata(
+        domain_name="support_tickets",
+        title="rag-support-lab",
+        record_label_singular="ticket",
+        record_label_plural="tickets",
+        dashboard_stats=[
+            {"label": "Tickets", "kind": "count", "resource": "support_tickets"},
+            {"label": "Messages", "kind": "count", "resource": "ticket_messages"},
+            {"label": "Embedded", "kind": "count_embedded", "resource": "ticket_messages"},
+            {"label": "Open", "kind": "count_open", "resource": "support_tickets"},
+        ],
+    ),
 )
 
 
