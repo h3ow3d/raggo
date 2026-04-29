@@ -11,8 +11,10 @@ refactored into a generic core with pluggable domains. The system demonstrates:
 - Intent-driven agent orchestration
 - Docker-based security isolation
 - Domain-agnostic RAG architecture
+- A React + Vite frontend served via nginx (Phase 6)
 
 See `PROJECT_SPEC.md` for the specification and `AGENTS.md` for build instructions.
+
 
 ## Quick start
 
@@ -23,9 +25,28 @@ docker compose up --build
 
 Once the stack is up:
 
-- Backend health: <http://localhost:8000/health>
-- Backend stats:  <http://localhost:8000/stats>
-- Domain info:    <http://localhost:8000/domain>
+- Frontend dashboard: <http://localhost:3000>
+- Backend health:     <http://localhost:8000/health>
+- Backend stats:      <http://localhost:8000/stats>
+- Domain info:        <http://localhost:8000/domain>
+
+The frontend (currently flights-domain-aware) has four pages:
+
+- **Dashboard** — live counts of flights, logs, incidents, embedded /
+  unembedded logs, plus a button to trigger an ingestion top-up.
+- **Add Flight Log** — pick a flight, fill in log type / source system /
+  severity / message / metadata JSON, and submit. The backend stores the
+  log and immediately requests an embedding for it from the local
+  embedding service.
+- **Vector Search** — manual pgvector similarity search with optional
+  severity and source-system filters.
+- **Agent Chat** — ask the backend agent a natural-language question and
+  see the answer, the retrieved evidence, and the full `agent_trace`.
+
+The frontend talks **only** to the backend via `/api/*` (proxied by
+nginx). It never reaches the embedding or generation services directly —
+those live on the internal `model_net`.
+
 
 The backend automatically:
 
@@ -343,6 +364,23 @@ This clears all data, re-runs init.sql, and re-seeds.
 │   │       └── support_tickets/
 │   ├── Dockerfile
 │   └── requirements.txt
+├── frontend/                  # React + Vite SPA, served via nginx
+│   ├── Dockerfile             # node build → nginx runtime
+│   ├── nginx.conf             # serves SPA, proxies /api/* to backend
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   ├── index.html
+│   └── src/
+│       ├── main.tsx
+│       ├── App.tsx
+│       ├── api.ts             # fetch wrapper, all calls hit /api/*
+│       ├── styles.css
+│       └── pages/
+│           ├── Dashboard.tsx
+│           ├── AddLog.tsx
+│           ├── VectorSearch.tsx
+│           └── AgentChat.tsx
 ├── db/
 │   └── init.sql               # Minimal pgvector setup
 ├── models/

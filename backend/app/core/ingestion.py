@@ -185,3 +185,61 @@ def ingest_all_for_domain(
         combined.embedded += res.embedded
         combined.errors.extend(res.errors)
     return combined
+
+
+def embed_item_by_id(
+    resource: "EmbeddableResource",
+    item_id: int,
+    client: Optional[EmbeddingClient] = None,
+) -> tuple[bool, Optional[str]]:
+    """Embed a single item of `resource` by primary-key id.
+
+    Returns a ``(embedded, error)`` tuple:
+
+    * ``embedded`` is True when the item was (re)embedded.
+    * ``error`` carries a human-readable reason when embedding was not
+      performed, so callers (e.g. the ``POST /logs`` handler) can
+      surface transient failures to the UI. ``error`` is ``None`` on
+      success, and also ``None`` when the item id simply does not exist.
+
+    Generic across embeddable resources — reads ``resource.text_column``
+    and writes back to the embedding/provenance columns declared on the
+    resource.
+    """
+    settings = get_settings()
+    owns_client = client is None
+    embedding_client = client or EmbeddingClient()
+    try:
+        with session_scope() as session:
+            item = session.get(resource.model, item_id)
+            if item is None:
+                return False, None
+            text_value = getattr(item, resource.text_column)
+            try:
+                embed_result = embedding_client.embed([text_value])
+            except EmbeddingServiceError as exc:
+                logger.warning("Failed to embed %s %s: %s", resource.name, item_id, exc)
+                return False, f"embedding service unavailable: {exc}"
+            if embed_result.dim != settings.embedding_dim:
+                logger.error(
+                    "Refusing to embed %s %s: dim %s != configured %s",
+                    resource.name,
+                    item_id,
+                    embed_result.dim,
+                    settings.embedding_dim,
+                )
+                return False, (
+                    f"embedding dimension mismatch ({embed_result.dim} != "
+                    f"{settings.embedding_dim})"
+                )
+            setattr(item, resource.embedding_column, embed_result.embeddings[0])
+            if resource.embedding_model_column:
+                setattr(item, resource.embedding_model_column, embed_result.model)
+            if resource.embedding_dim_column:
+                setattr(item, resource.embedding_dim_column, embed_result.dim)
+            if resource.embedded_at_column:
+                setattr(item, resource.embedded_at_column, datetime.now(timezone.utc))
+            return True, None
+    finally:
+        if owns_client:
+            embedding_client.close()

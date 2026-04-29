@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -138,3 +138,67 @@ class QueryResponse(BaseModel):
     answer: str
     evidence: List[QueryEvidence]
     agent_trace: Dict[str, Any]
+
+
+# --- Phase 6: flights & logs (frontend support) -----------------------------
+# NOTE: These are flight-domain-specific shapes carried over from the pre-
+# refactor codebase to keep the existing frontend working while the domain
+# abstraction stabilises. A future phase will move them into a domain-
+# specific endpoint surface so `core/schemas.py` is fully domain-agnostic.
+
+
+class FlightSummary(BaseModel):
+    """Minimal flight payload used by the frontend flight selector."""
+
+    id: int
+    flight_number: str
+    airline: str
+    origin: str
+    destination: str
+    scheduled_departure: datetime
+    status: str
+
+
+class FlightListResponse(BaseModel):
+    results: List[FlightSummary]
+
+
+class CreateLogRequest(BaseModel):
+    """Body for `POST /logs`.
+
+    `log_time` is optional; it defaults to "now" on the server when not
+    provided. `metadata` is a free-form JSON object stored in the
+    `structured_metadata` column.
+    """
+
+    flight_id: int = Field(..., ge=1)
+    log_type: str = Field(..., min_length=1, max_length=64)
+    source_system: str = Field(..., min_length=1, max_length=64)
+    severity: str = Field(..., min_length=1, max_length=32)
+    message: str = Field(..., min_length=1)
+    log_time: Optional[datetime] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("log_type", "source_system", "severity", "message")
+    @classmethod
+    def _strip_and_require_non_empty(cls, value: str) -> str:
+        # `min_length=1` only checks the raw value; whitespace-only inputs
+        # would otherwise pass validation and be persisted as empty
+        # strings after stripping. Trim once here and reject if nothing
+        # is left.
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be empty or whitespace-only")
+        return stripped
+
+
+class CreateLogResponse(BaseModel):
+    id: int
+    flight_id: int
+    log_time: datetime
+    log_type: str
+    source_system: str
+    severity: str
+    message: str
+    embedded: bool
+    embedding_error: Optional[str] = None
