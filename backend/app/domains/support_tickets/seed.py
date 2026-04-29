@@ -155,6 +155,7 @@ def _generate_message_row(rng: random.Random, ticket: SupportTicket) -> dict:
         "ticket_id": ticket.id,
         "author": author,
         "body": body,
+        "created_at": message_time,
     }
 
 

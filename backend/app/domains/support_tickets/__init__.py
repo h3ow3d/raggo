@@ -11,7 +11,6 @@ from typing import Dict, Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.domain import DomainPack, DisplayMetadata, EmbeddableResource, FilterSpec
 from app.domains.support_tickets.intent_rules import INTENT_RULES, default_plan
 from app.domains.support_tickets.models import Base, SupportTicket, TicketMessage
@@ -98,11 +97,14 @@ DOMAIN = DomainPack(
     stats=_stats,
     domain_context=DOMAIN_CONTEXT,
     evidence_formatter=format_evidence,
+    default_intent_plan=default_plan,
     display=DisplayMetadata(
         domain_name="support_tickets",
         title="rag-support-lab",
         record_label_singular="ticket",
         record_label_plural="tickets",
+        version="0.1.0",
+        description="Customer support ticket analysis with messages and priorities.",
         dashboard_stats=[
             {"label": "Tickets", "kind": "count", "resource": "support_tickets"},
             {"label": "Messages", "kind": "count", "resource": "ticket_messages"},

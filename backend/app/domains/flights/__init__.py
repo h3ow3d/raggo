@@ -12,7 +12,6 @@ This module bundles all flight operations-specific configuration:
 from __future__ import annotations
 
 import os
-from datetime import datetime
 from typing import Any, Dict
 
 from sqlalchemy import func, select
@@ -123,11 +122,14 @@ DOMAIN = DomainPack(
     stats=stats,
     domain_context=prompts.DOMAIN_CONTEXT,
     evidence_formatter=prompts.format_evidence,
+    default_intent_plan=intent_rules.default_plan,
     display=DisplayMetadata(
         domain_name="flights",
         title="rag-flight-lab",
         record_label_singular="flight log",
         record_label_plural="flight logs",
+        version="0.1.0",
+        description="Flight operations analysis with logs, incidents, and delays.",
         dashboard_stats=[
             {"label": "Flights", "kind": "count", "resource": "flights"},
             {"label": "Logs", "kind": "count", "resource": "flight_logs"},

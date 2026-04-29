@@ -14,7 +14,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.inspection import inspect as sa_inspect
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.domain import EmbeddableResource
@@ -157,10 +158,31 @@ def search(
         .where(embedding_col.is_not(None))
     )
 
-    # Apply joins if the resource specifies any
+    # Apply joins if the resource specifies any. Joins are used to
+    # filter/order rows; to avoid an N+1 lazy-load when
+    # `evidence_projection` accesses related attributes (e.g.
+    # `log.flight`, `tm.ticket`), eager-load any relationship from the
+    # resource model that targets a joined model with `selectinload`.
+    joined_models: List[type] = []
     for joined_model, on_clause_factory in resource.joins:
         on_clause = on_clause_factory(resource.model, joined_model)
         stmt = stmt.join(joined_model, on_clause)
+        joined_models.append(joined_model)
+
+    if joined_models:
+        try:
+            mapper = sa_inspect(resource.model)
+            for rel in mapper.relationships:
+                if rel.mapper.class_ in joined_models:
+                    stmt = stmt.options(
+                        selectinload(getattr(resource.model, rel.key))
+                    )
+        except Exception:  # pragma: no cover - defensive: fall back to lazy load
+            logger.debug(
+                "Could not configure eager loading for %s; "
+                "evidence_projection may issue extra queries.",
+                resource.model.__name__,
+            )
 
     # Apply filters
     for clause in _build_filter_clauses(resource, filters):

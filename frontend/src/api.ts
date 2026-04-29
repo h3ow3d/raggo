@@ -58,22 +58,16 @@ export interface VectorSearchRequest {
 }
 
 export interface VectorSearchResult {
-  log_id: number;
-  flight_id: number;
-  flight_number: string;
-  origin: string;
-  destination: string;
-  log_time: string;
-  log_type: string;
-  source_system: string;
-  severity: string;
-  message: string;
-  similarity: number | null;
+  id: number;
+  score: number | null;
   distance: number | null;
+  text: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface VectorSearchResponse {
   query: string;
+  resource: string;
   top_k: number;
   results: VectorSearchResult[];
 }

@@ -143,6 +143,8 @@ class DisplayMetadata:
     record_label_plural: str
     dashboard_stats: list[dict]
     form_schema: dict | None = None
+    version: str = "0.1.0"
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -191,6 +193,10 @@ class DomainPack:
     domain_context: str
     evidence_formatter: Callable[[list[dict]], str]
     display: DisplayMetadata
+    # Optional domain-supplied default intent plan. When present, the
+    # agent orchestrator uses it instead of the built-in vector-only
+    # fallback. Receives the user question and returns an `IntentPlan`.
+    default_intent_plan: Optional[Callable[[str], Any]] = None
 
 
 def load_domain(name: str) -> DomainPack:

@@ -191,14 +191,19 @@ def run(
         settings.agent_max_vector_results,
     )
 
-    # Build the classifier and classify the intent
-    classifier = RuleBasedIntentClassifier(
-        rules=domain.intent_rules,
-        default_plan=lambda q: IntentPlan(
+    # Build the classifier and classify the intent. If the domain supplies a
+    # default intent plan, prefer it over the generic vector-only fallback so
+    # per-domain conventions (e.g. a specific `vector_resource`) are honoured.
+    domain_default = getattr(domain, "default_intent_plan", None)
+    if domain_default is None:
+        domain_default = lambda q: IntentPlan(
             strategy="vector_only",
             vector_query=q,
             notes="default: vector-only RAG",
-        ),
+        )
+    classifier = RuleBasedIntentClassifier(
+        rules=domain.intent_rules,
+        default_plan=domain_default,
     )
     intent = classifier.classify(question)
 

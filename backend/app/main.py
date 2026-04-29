@@ -39,7 +39,7 @@ from app.core.agent import orchestrator
 from app.core.config import get_settings
 from app.core.database import engine, session_scope
 from app.core.domain import DomainPack, load_domain
-from app.core.ingestion import embed_item_by_id, ingest_all_for_domain
+from app.core.ingestion import embed_item_by_id, ingest_all_for_domain, ingest_unembedded
 from app.core.schemas import (
     CreateLogRequest,
     CreateLogResponse,
@@ -279,17 +279,45 @@ def domain_info() -> Dict[str, Any]:
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(request: IngestRequest | None = None) -> IngestResponse:
-    """Run a bounded ingestion pass over domain embeddable resources."""
+    """Run a bounded ingestion pass over domain embeddable resources.
+
+    When `request.resource` is supplied, ingestion is scoped to just that
+    resource. Otherwise every embeddable resource in the active domain is
+    processed (per-resource limit).
+    """
     domain: DomainPack = app.state.domain
     payload = request or IngestRequest()
-    
+
+    selected_resource = None
+    if payload.resource:
+        for r in domain.embeddable_resources:
+            if r.name == payload.resource:
+                selected_resource = r
+                break
+        if selected_resource is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unknown resource: {payload.resource}. Available: "
+                    f"{[r.name for r in domain.embeddable_resources]}"
+                ),
+            )
+
     def _run() -> Dict[str, Any]:
-        return ingest_all_for_domain(
-            domain=domain,
-            limit=payload.limit,
-            batch_size=payload.batch_size,
-        )
-    
+        if selected_resource is not None:
+            res = ingest_unembedded(
+                resource=selected_resource,
+                limit=payload.limit,
+                batch_size=payload.batch_size,
+            )
+        else:
+            res = ingest_all_for_domain(
+                domain=domain,
+                limit=payload.limit,
+                batch_size=payload.batch_size,
+            )
+        return res.to_dict()
+
     result = await anyio.to_thread.run_sync(_run)
     return IngestResponse(**result)
 
@@ -395,7 +423,16 @@ def list_flights(
     ),
     limit: int = Query(default=25, ge=1, le=100),
 ) -> FlightListResponse:
-    """Lightweight flight listing used by the frontend Add Flight Log selector."""
+    """Lightweight flight listing used by the frontend Add Flight Log selector.
+
+    Flights-domain only: returns 404 when a different domain is active.
+    """
+    domain: DomainPack = app.state.domain
+    if domain.name != "flights":
+        raise HTTPException(
+            status_code=404,
+            detail="/flights is only available when RAGGO_DOMAIN=flights",
+        )
     term = (search or "").strip()
     with session_scope() as session:
         stmt = select(Flight).order_by(Flight.scheduled_departure.desc())
@@ -428,7 +465,17 @@ def list_flights(
 
 @app.post("/logs", response_model=CreateLogResponse, status_code=201)
 async def create_log(request: CreateLogRequest) -> CreateLogResponse:
-    """Create a new flight log and trigger embedding for that single row."""
+    """Create a new flight log and trigger embedding for that single row.
+
+    Flights-domain only: returns 404 when a different domain is active so
+    callers don't accidentally insert into a non-existent table.
+    """
+    domain: DomainPack = app.state.domain
+    if domain.name != "flights":
+        raise HTTPException(
+            status_code=404,
+            detail="/logs is only available when RAGGO_DOMAIN=flights",
+        )
     # The Pydantic validator on CreateLogRequest already trims and
     # requires non-empty values for the string fields.
     severity = request.severity.lower()
@@ -470,11 +517,13 @@ async def create_log(request: CreateLogRequest) -> CreateLogResponse:
     embedded = False
     embedding_error: str | None = None
     try:
-        # Resolve the embeddable resource for the active domain. The
-        # frontend that calls this endpoint is currently flights-only,
-        # so the first resource is the flight_logs one.
-        domain: DomainPack = app.state.domain
-        resource = domain.embeddable_resources[0] if domain.embeddable_resources else None
+        # Resolve the `flight_logs` embeddable resource by name rather
+        # than positionally, so reordering domain resources can't break
+        # this single-row ingestion path.
+        resource = next(
+            (r for r in domain.embeddable_resources if r.name == "flight_logs"),
+            None,
+        )
         if resource is not None:
             embedded, embedding_error = await anyio.to_thread.run_sync(
                 embed_item_by_id, resource, log_id
