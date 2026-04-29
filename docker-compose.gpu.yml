@@ -1,31 +1,35 @@
-# rag-flight-lab — GPU override (placeholder for Phase 1)
+# rag-flight-lab — GPU override (Phase 3)
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 #
-# This file is intentionally a placeholder during Phase 1: the embedding
-# and generation model services are introduced in later phases. When those
-# services exist, this override will request NVIDIA GPU resources for the
-# generation model only (the embedding model stays CPU-first).
-#
-# Documented structure for the future generation-model service:
-#
-#   services:
-#     generation-model:
-#       environment:
-#         MODEL_RUNTIME: gpu
-#       deploy:
-#         resources:
-#           reservations:
-#             devices:
-#               - driver: nvidia
-#                 count: 1
-#                 capabilities: [gpu]
+# This override requests NVIDIA GPU resources for the generation-model
+# service only. The embedding-model stays CPU-first. The default
+# `docker-compose.yml` must remain CPU-only; running it without this
+# override should never require a GPU.
 #
 # Notes:
-#   - Default `docker-compose.yml` must remain CPU-only.
 #   - GPU support applies only to the generation model service.
-#   - Do not expose model services to the host even in GPU mode; the
-#     internal `model_net` network and security hardening still apply.
+#   - The internal `model_net` network and all container hardening from
+#     the base compose file still apply. No host ports are exposed.
+#   - The runtime image bakes a CPU torch wheel, so without a real GPU
+#     the service still falls back to CPU inference. Using this override
+#     on a GPU host lets the runtime detect CUDA and prefer the device.
 
-services: {}
+services:
+  generation-model:
+    environment:
+      MODEL_RUNTIME: gpu
+      # Allow CUDA-using libraries to discover the GPU at runtime. With
+      # `cap_drop: [ALL]` and `no-new-privileges:true` from the base file
+      # still in effect, this only enables device access via the NVIDIA
+      # runtime — it does not grant additional kernel capabilities.
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
