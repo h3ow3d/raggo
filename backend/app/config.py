@@ -36,6 +36,24 @@ class Settings(BaseSettings):
     seed_log_count: int = Field(default=50000, alias="SEED_LOG_COUNT")
     seed_incident_count: int = Field(default=500, alias="SEED_INCIDENT_COUNT")
 
+    # --- Ingestion / model service ---------------------------------------
+    # URL of the internal embedding model service (only reachable from the
+    # backend over `model_net`).
+    embedding_service_url: str = Field(
+        default="http://embedding-model:8000",
+        alias="EMBEDDING_SERVICE_URL",
+    )
+    # Number of logs sent to the embedding service per HTTP call. Must stay
+    # at or below the embedding service's MAX_BATCH (default 128).
+    ingest_batch_size: int = Field(default=128, alias="INGEST_BATCH_SIZE")
+    # Cap on how many logs the startup ingestion task will embed before
+    # yielding. Keeps API/UI responsive on first boot with 50k seed logs.
+    startup_ingest_limit: int = Field(default=2000, alias="STARTUP_INGEST_LIMIT")
+    # Per-request HTTP timeout for embedding calls (seconds).
+    embedding_request_timeout: float = Field(
+        default=60.0, alias="EMBEDDING_REQUEST_TIMEOUT"
+    )
+
     @property
     def database_url(self) -> str:
         # Use SQLAlchemy's URL builder so credentials containing reserved
