@@ -59,9 +59,14 @@ MAX_MAX_NEW_TOKENS = int(os.environ.get("GEN_MAX_MAX_NEW_TOKENS", "1024"))
 DEFAULT_TEMPERATURE = float(os.environ.get("GEN_DEFAULT_TEMPERATURE", "0.2"))
 MAX_PROMPT_CHARS = int(os.environ.get("GEN_MAX_PROMPT_CHARS", "32000"))
 # Per-request wall-clock cap. Generation that exceeds this is cancelled
-# and the client receives a 504 with finish_reason="timeout".
+# and the client receives a 504 with finish_reason="timeout". The default
+# is sized for CPU inference of small instruct models (e.g.
+# Qwen2.5-0.5B): on a typical laptop CPU these can take a couple of
+# minutes for a few hundred new tokens, so the default budget is
+# generous. GPU runs and faster machines can lower this via
+# `GEN_TIMEOUT_SECONDS`.
 GENERATE_TIMEOUT_SECONDS = float(
-    os.environ.get("GEN_TIMEOUT_SECONDS", "120")
+    os.environ.get("GEN_TIMEOUT_SECONDS", "240")
 )
 # Bound concurrency so a stampede can't pin all CPU cores at once.
 MAX_CONCURRENCY = int(os.environ.get("GEN_MAX_CONCURRENCY", "1"))

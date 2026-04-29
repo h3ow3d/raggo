@@ -82,6 +82,34 @@ docker compose down -v
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 ```
 
+## Troubleshooting
+
+### Agent answers come back with "Generation model unavailable" (504s in logs)
+
+On CPU-only hosts (especially Apple Silicon via Docker Desktop) the
+local generation model can be slow enough that a single answer exceeds
+the per-request budget. The backend log will show messages like:
+
+```
+generation service returned 504: {"detail":"generation timed out after Ns"}
+```
+
+The defaults are sized for CPU inference of `Qwen2.5-0.5B-Instruct`,
+but you can tune them via environment variables (see `.env.example`):
+
+- `GEN_TIMEOUT_SECONDS` — wall-clock budget inside the generation
+  container (default `240`).
+- `GENERATION_REQUEST_TIMEOUT` — backend HTTP timeout for `/generate`
+  calls. Keep this **>=** `GEN_TIMEOUT_SECONDS` (default `240`).
+- `AGENT_MAX_NEW_TOKENS` — cap on new tokens per agent turn (default
+  `256`). Lower this on very slow hardware; raise it on GPU.
+
+After changing values, restart the affected services:
+
+```bash
+docker compose up -d --no-deps backend generation-model
+```
+
 ## Layout
 
 ```
