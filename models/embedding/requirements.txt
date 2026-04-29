@@ -1,0 +1,18 @@
+# Pinned dependencies for the embedding model service.
+#
+# Versions are kept conservative and CPU-friendly. The runtime stage installs
+# the same set, but the model itself is fetched only in the build-time
+# `weights` stage (see download_model.py).
+
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+# CPU build of torch keeps the runtime image small and avoids pulling in
+# CUDA libraries we do not use in the default mode.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.6.0+cpu
+
+sentence-transformers==3.4.1
+transformers==4.48.3
+huggingface-hub==0.27.1
