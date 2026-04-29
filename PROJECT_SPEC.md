@@ -186,7 +186,8 @@ For both model containers:
 - use `security_opt: ["no-new-privileges:true"]`
 - avoid unnecessary Linux capabilities
 - avoid unnecessary writable paths
-- avoid bind-mounting source code into model containers
+- do not bind-mount model weights, source code, or any host directories into
+  model containers (weights must be baked into the image; see §6.0)
 - only use read-only model files at runtime
 - do not call external APIs
 - do not download anything at runtime
@@ -213,6 +214,66 @@ The runtime model code must load only from local filesystem paths.
 # 6. Model Strategy
 
 Use two separate model services.
+
+## 6.0 Packaging Pattern (Required)
+
+Both model services must follow the **multi-stage Docker build with weights baked
+into the image** pattern. This is the chosen approach for this project.
+
+The pattern:
+
+1. **Stage 1 — `weights`**: a build-time stage that has network access. It runs
+   `download_model.py` to fetch the model from Hugging Face and saves it to a
+   well-known path inside the stage (e.g. `/models/embedding` or
+   `/models/generation`).
+2. **Stage 2 — runtime**: a minimal runtime image that uses
+   `COPY --from=weights /models /models` to copy the weights into the final
+   image. The runtime stage must **not** include Hugging Face download tooling,
+   git, or other network utilities beyond what is required to serve requests.
+3. The final image is fully self-contained. No weights are downloaded at
+   runtime. No weights are bind-mounted from the host.
+
+Rules that follow from this pattern:
+
+- Do **not** download models on the host and bind-mount them into the
+  container.
+- Do **not** use a shared named Docker volume that the model containers
+  populate at runtime.
+- Do **not** rely on any runtime network access from the model containers.
+- The model files inside the final image must be readable by the non-root
+  runtime user but should not be writable.
+- `read_only: true` on the container is expected to work because weights live
+  on the image's read-only layers.
+- Model selection is controlled at build time via build args
+  (`EMBEDDING_MODEL_NAME`, `GENERATION_MODEL_NAME`). Changing the model
+  requires rebuilding the relevant image.
+
+### Generation runtime engine
+
+The generation service exposes a stable HTTP contract (`POST /generate`) so
+the underlying inference engine can be swapped without affecting the backend.
+
+- **Default engine**: `transformers` + `torch` (CPU). This matches the default
+  Hugging Face model ID in `.env.example` directly and requires no model
+  conversion. Use this for the first working version.
+- **Optional engine**: `llama.cpp` via `llama-cpp-python`. When this engine is
+  selected, the build-time `download_model.py` must fetch a pre-quantised
+  **GGUF** artifact (for example from a `*-GGUF` repository on Hugging Face)
+  and save it to `/models/generation`. The runtime `app.py` loads the GGUF
+  file and serves the same `/generate` contract. This engine is preferred
+  when CPU throughput or memory footprint matters.
+
+Engine selection is controlled by the existing build arg `MODEL_RUNTIME`,
+which may take the values:
+
+```text
+cpu        # transformers + torch on CPU (default)
+gpu        # transformers + torch on GPU (used by docker-compose.gpu.yml)
+llamacpp   # llama-cpp-python with a GGUF artifact baked into the image
+```
+
+The embedding service must use `sentence-transformers`. Do not use
+`llama.cpp` for embeddings in this project.
 
 ## 6.1 Embedding Model Service
 
@@ -266,11 +327,12 @@ EMBEDDING_MODEL_NAME
 EMBEDDING_DIM
 ```
 
-At build time:
+At build time (multi-stage; see §6.0):
 
-1. download model
-2. save it into the image under `/models/embedding`
-3. runtime must load from `/models/embedding`
+1. in the `weights` stage, download the model
+2. save it under `/models/embedding`
+3. `COPY --from=weights /models/embedding /models/embedding` into the runtime stage
+4. runtime must load from `/models/embedding` only
 
 ## 6.2 Generation Model Service
 
@@ -329,11 +391,13 @@ GENERATION_MODEL_NAME
 MODEL_RUNTIME
 ```
 
-At build time:
+At build time (multi-stage; see §6.0):
 
-1. download model
-2. save it into image under `/models/generation`
-3. runtime must load from `/models/generation`
+1. in the `weights` stage, download the model (a Hugging Face repo for the
+   `transformers` engine, or a GGUF artifact for the `llamacpp` engine)
+2. save it under `/models/generation`
+3. `COPY --from=weights /models/generation /models/generation` into the runtime stage
+4. runtime must load from `/models/generation` only
 
 ---
 
@@ -935,15 +999,16 @@ The README must include:
 6. how to run GPU mode
 7. how to change embedding model
 8. how to change generation model
-9. how build-time model inclusion works
+9. how build-time model inclusion works (multi-stage build, weights baked into the image)
 10. how offline runtime works
-11. how seeding works
-12. how ingestion works
-13. how vector search works
-14. how the basic agent works
-15. example questions
-16. troubleshooting
-17. reset commands
+11. how to switch the generation runtime engine (`transformers` default vs `llama.cpp`/GGUF)
+12. how seeding works
+13. how ingestion works
+14. how vector search works
+15. how the basic agent works
+16. example questions
+17. troubleshooting
+18. reset commands
 
 Include commands:
 
