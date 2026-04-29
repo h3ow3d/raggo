@@ -66,6 +66,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TRANSFORMERS_OFFLINE=1 \
     HF_DATASETS_OFFLINE=1
 
+# Point HuggingFace caches at the writable tmpfs mounted on /tmp. The
+# runtime user has no home directory (--no-create-home) and the container
+# filesystem is read_only, so the default ~/.cache/huggingface location is
+# not writable. We never actually fetch anything at runtime
+# (HF_HUB_OFFLINE=1 and weights are baked in), but several HF libraries
+# try to ensure the cache directory exists at import time and emit a
+# noisy warning if it cannot be created.
+ENV HF_HOME=/tmp/huggingface \
+    TRANSFORMERS_CACHE=/tmp/huggingface/transformers \
+    HF_HUB_CACHE=/tmp/huggingface/hub \
+    XDG_CACHE_HOME=/tmp/cache
+
 WORKDIR /app
 
 # Install torch from the dedicated PyTorch index, scoped to torch alone
