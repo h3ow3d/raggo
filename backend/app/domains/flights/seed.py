@@ -24,8 +24,8 @@ from typing import Iterable, List, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .config import get_settings
-from .models import Flight, FlightLog, Incident
+from app.core.config import get_settings
+from app.domains.flights.models import Flight, FlightLog, Incident
 
 logger = logging.getLogger(__name__)
 

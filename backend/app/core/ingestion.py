@@ -1,15 +1,12 @@
-"""Embedding ingestion pipeline.
+"""Generic embedding ingestion pipeline.
 
-Finds flight logs without an embedding, sends their messages to the
-embedding model service in batches, and writes the resulting vectors
-back to PostgreSQL together with provenance columns
-(`embedding_model`, `embedding_dim`, `embedded_at`).
+Finds rows without an embedding in any EmbeddableResource, sends their
+text to the embedding model service in batches, and writes the resulting
+vectors back to PostgreSQL together with optional provenance columns.
 
 The pipeline is intentionally simple and synchronous: it is called from
-- the startup hook (with a small `STARTUP_INGEST_LIMIT` cap so the API
-  does not block forever on first boot),
-- the `POST /ingest` endpoint (operator-triggered top-up),
-- the `POST /logs` flow once a new log is created (Phase 5+).
+- the startup hook (with a small `STARTUP_INGEST_LIMIT` cap)
+- the `POST /ingest` endpoint (operator-triggered top-up)
 """
 
 from __future__ import annotations
@@ -21,10 +18,10 @@ from typing import Callable, List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .config import get_settings
-from .database import session_scope
-from .model_clients import EmbeddingClient, EmbeddingServiceError
-from .models import FlightLog
+from app.core.config import get_settings
+from app.core.database import session_scope
+from app.core.domain import DomainPack, EmbeddableResource
+from app.core.model_clients import EmbeddingClient, EmbeddingServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -47,26 +44,39 @@ class IngestionResult:
         }
 
 
-def _select_unembedded_logs(session: Session, limit: int) -> List[FlightLog]:
-    """Return up to `limit` logs that have no embedding yet, oldest first."""
+def _select_unembedded(
+    session: Session, resource: EmbeddableResource, limit: int
+) -> List[Any]:
+    """Return up to `limit` items that have no embedding yet, oldest first."""
     if limit <= 0:
         return []
+    embedding_col = getattr(resource.model, resource.embedding_column, None)
+    if embedding_col is None:
+        logger.error(
+            "Resource %s model %s missing embedding column %s",
+            resource.name,
+            resource.model.__name__,
+            resource.embedding_column,
+        )
+        return []
+    
     stmt = (
-        select(FlightLog)
-        .where(FlightLog.embedding.is_(None))
-        .order_by(FlightLog.id)
+        select(resource.model)
+        .where(embedding_col.is_(None))
+        .order_by(resource.model.id)
         .limit(limit)
     )
     return list(session.scalars(stmt))
 
 
-def ingest_unembedded_logs(
+def ingest_unembedded(
+    resource: EmbeddableResource,
     limit: Optional[int] = None,
     batch_size: Optional[int] = None,
     client: Optional[EmbeddingClient] = None,
     should_stop: Optional[Callable[[], bool]] = None,
 ) -> IngestionResult:
-    """Embed up to `limit` logs that currently have no embedding.
+    """Embed up to `limit` items that currently have no embedding.
 
     Each batch is embedded via the embedding model service and committed
     in its own transaction so partial progress is preserved if a later
@@ -99,12 +109,12 @@ def ingest_unembedded_logs(
             # New session per batch so each commit is independent and
             # long ingestion runs don't hold a single transaction open.
             with session_scope() as session:
-                logs = _select_unembedded_logs(session, chunk_size)
-                if not logs:
+                items = _select_unembedded(session, resource, chunk_size)
+                if not items:
                     return result
 
-                result.scanned += len(logs)
-                texts = [log.message for log in logs]
+                result.scanned += len(items)
+                texts = [getattr(item, resource.text_column) for item in items]
 
                 try:
                     embed_result = embedding_client.embed(texts)
@@ -126,16 +136,19 @@ def ingest_unembedded_logs(
                     return result
 
                 now = datetime.now(timezone.utc)
-                for log, vector in zip(logs, embed_result.embeddings):
-                    log.embedding = vector
-                    log.embedding_model = embed_result.model
-                    log.embedding_dim = embed_result.dim
-                    log.embedded_at = now
+                for item, vector in zip(items, embed_result.embeddings):
+                    setattr(item, resource.embedding_column, vector)
+                    if resource.embedding_model_column:
+                        setattr(item, resource.embedding_model_column, embed_result.model)
+                    if resource.embedding_dim_column:
+                        setattr(item, resource.embedding_dim_column, embed_result.dim)
+                    if resource.embedded_at_column:
+                        setattr(item, resource.embedded_at_column, now)
 
-                result.embedded += len(logs)
+                result.embedded += len(items)
 
-            remaining -= len(logs)
-            if len(logs) < chunk_size:
+            remaining -= len(items)
+            if len(items) < chunk_size:
                 # Nothing left to embed.
                 break
     finally:
@@ -145,38 +158,30 @@ def ingest_unembedded_logs(
     return result
 
 
-def embed_log_by_id(log_id: int, client: Optional[EmbeddingClient] = None) -> bool:
-    """Embed a single log by id. Returns True if it was (re)embedded.
-
-    Useful when a new log is submitted via `POST /logs`: ingestion can
-    be triggered for just that row instead of scanning the full table.
+def ingest_all_for_domain(
+    domain: DomainPack,
+    limit: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> IngestionResult:
+    """Ingest all embeddable resources for a domain.
+    
+    Returns a combined IngestionResult across all resources.
+    The limit is per-resource (each resource gets up to `limit` items embedded).
     """
-    settings = get_settings()
-    owns_client = client is None
-    embedding_client = client or EmbeddingClient()
-    try:
-        with session_scope() as session:
-            log = session.get(FlightLog, log_id)
-            if log is None:
-                return False
-            try:
-                embed_result = embedding_client.embed([log.message])
-            except EmbeddingServiceError as exc:
-                logger.warning("Failed to embed log %s: %s", log_id, exc)
-                return False
-            if embed_result.dim != settings.embedding_dim:
-                logger.error(
-                    "Refusing to embed log %s: dim %s != configured %s",
-                    log_id,
-                    embed_result.dim,
-                    settings.embedding_dim,
-                )
-                return False
-            log.embedding = embed_result.embeddings[0]
-            log.embedding_model = embed_result.model
-            log.embedding_dim = embed_result.dim
-            log.embedded_at = datetime.now(timezone.utc)
-            return True
-    finally:
-        if owns_client:
-            embedding_client.close()
+    combined = IngestionResult()
+    for resource in domain.embeddable_resources:
+        if should_stop is not None and should_stop():
+            logger.info("Ingestion stopping early (domain-wide).")
+            break
+        logger.info("Ingesting resource %s...", resource.name)
+        res = ingest_unembedded(
+            resource=resource,
+            limit=limit,
+            batch_size=batch_size,
+            should_stop=should_stop,
+        )
+        combined.scanned += res.scanned
+        combined.embedded += res.embedded
+        combined.errors.extend(res.errors)
+    return combined

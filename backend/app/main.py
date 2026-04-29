@@ -1,19 +1,21 @@
-"""FastAPI application entrypoint for rag-flight-lab.
+"""FastAPI application entrypoint for raggo.
 
-Phase 1 responsibilities:
-- expose `GET /health`
-- expose `GET /stats` (basic counts, useful sanity check)
-- on startup: wait for the database, ensure schema exists, and seed data
-  if the database is empty.
+Generic domain-agnostic API server with pluggable DomainPacks.
 
-Phase 4 adds the embedding ingestion pipeline and pgvector similarity
-search:
-- `POST /ingest` runs a bounded ingestion pass.
-- `POST /search/vector` performs similarity search with structured filters.
-- A bounded startup ingestion task runs in the background so the API/UI
-  is not blocked while the initial ~50k seed logs get embedded.
+Responsibilities:
+- `GET /health` — liveness probe
+- `GET /stats` — dashboard stats from current domain
+- `GET /domain` — domain metadata and available resources/tools
+- `POST /ingest` — run bounded ingestion pass for embeddable resources
+- `POST /search/vector` — vector similarity search over a domain resource
+- `POST /query` — RAG agent with safe SQL, vector search, and generation
 
-Later phases will add the agent endpoint.
+On startup:
+- Wait for the database
+- Load the domain specified by RAGGO_DOMAIN
+- Run domain init.sql if needed
+- Seed domain data if empty
+- Start background ingestion for embeddable resources
 """
 
 from __future__ import annotations
@@ -23,46 +25,36 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List
 
 import anyio
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import func, select, text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError
 
-from .config import get_settings
-from .database import engine, session_scope
-from .ingestion import ingest_unembedded_logs
-from .models import FlightLog, Flight, Incident
-from . import agent as agent_module
-from .schemas import (
+from app.core.agent import orchestrator
+from app.core.config import get_settings
+from app.core.database import engine, session_scope
+from app.core.domain import DomainPack, load_domain
+from app.core.ingestion import ingest_all_for_domain
+from app.core.schemas import (
     HealthResponse,
     IngestRequest,
     IngestResponse,
-    QueryEvidence,
     QueryRequest,
     QueryResponse,
     StatsResponse,
     VectorSearchRequest,
     VectorSearchResponse,
-    VectorSearchResult,
 )
-from .seed import seed_database
-from .vector_search import (
-    VectorSearchDependencyError,
-    VectorSearchError,
-    search_logs,
-)
+from app.core.vector_search import VectorSearchDependencyError, VectorSearchError, search
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 def _wait_for_database(max_attempts: int = 60, delay_seconds: float = 1.0) -> None:
-    """Block until PostgreSQL accepts connections.
-
-    The database container needs a moment to become ready on first start;
-    `init.sql` also runs there before the backend can connect.
-    """
+    """Block until PostgreSQL accepts connections."""
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -78,59 +70,52 @@ def _wait_for_database(max_attempts: int = 60, delay_seconds: float = 1.0) -> No
 
 
 def _ensure_pgvector_extension() -> None:
-    """Make sure the pgvector extension exists.
-
-    `db/init.sql` already enables it for new clusters; this is defensive in
-    case the backend points at an existing database.
-    """
+    """Make sure the pgvector extension exists."""
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
 
-def _validate_embedding_dim() -> None:
-    """Fail fast if `EMBEDDING_DIM` does not match the database schema.
+def _table_exists(table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    inspector = inspect(engine)
+    return table_name in inspector.get_table_names()
 
-    `db/init.sql` declares `flight_logs.embedding` as `vector(384)`. If the
-    operator changes `EMBEDDING_DIM`, the ORM's `Vector(...)` type and the
-    actual column dimension will disagree and inserts will fail at runtime
-    with a confusing pgvector error. Raise a clear startup error instead.
-    """
-    settings = get_settings()
-    with engine.connect() as conn:
-        # `atttypmod` for a pgvector column encodes the declared dimension.
-        row = conn.execute(
-            text(
-                """
-                SELECT a.atttypmod
-                FROM pg_attribute a
-                JOIN pg_class c ON c.oid = a.attrelid
-                WHERE c.relname = 'flight_logs'
-                  AND a.attname = 'embedding'
-                  AND a.attnum > 0
-                  AND NOT a.attisdropped
-                """
-            )
-        ).first()
-    if row is None:
-        # Schema not yet present — init.sql hasn't run. Nothing to validate.
+
+def _run_init_sql_if_needed(domain: DomainPack) -> None:
+    """Run domain init.sql if the domain's first table doesn't exist."""
+    if not domain.embeddable_resources:
+        logger.info("No embeddable resources in domain; skipping init.sql check.")
         return
-    column_dim = int(row[0])
-    if column_dim <= 0:
-        # Unknown / not constrained; skip validation rather than guess.
+    
+    # Check first resource's table
+    first_resource = domain.embeddable_resources[0]
+    table_name = first_resource.model.__tablename__
+    
+    if _table_exists(table_name):
+        logger.info("Domain table '%s' exists; skipping init.sql.", table_name)
         return
-    if column_dim != settings.embedding_dim:
-        raise RuntimeError(
-            f"EMBEDDING_DIM={settings.embedding_dim} does not match the "
-            f"flight_logs.embedding column dimension ({column_dim}) created by "
-            f"db/init.sql. For Phase 1 the schema is fixed at 384 dimensions; "
-            f"either set EMBEDDING_DIM=384 or recreate the database with a "
-            f"matching schema (docker compose down -v)."
-        )
+    
+    if not domain.init_sql_path or not domain.init_sql_path.exists():
+        logger.warning("Domain init.sql not found at %s", domain.init_sql_path)
+        return
+    
+    logger.info("Running domain init.sql from %s…", domain.init_sql_path)
+    sql_content = domain.init_sql_path.read_text()
+    
+    with engine.begin() as conn:
+        # Execute each statement separately
+        for statement in sql_content.split(";"):
+            statement = statement.strip()
+            if statement:
+                conn.execute(text(statement))
+    
+    logger.info("Domain init.sql executed successfully.")
 
 
-def _run_startup_seed() -> None:
+def _run_startup_seed(domain: DomainPack) -> None:
+    """Seed domain data if the domain has no existing data."""
     with session_scope() as session:
-        result = seed_database(session)
+        result = domain.seed(session)
     if result.get("skipped"):
         logger.info("Startup seed skipped (data already present).")
     else:
@@ -139,52 +124,64 @@ def _run_startup_seed() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # The startup work is intentionally blocking (sync SQLAlchemy + a sleep
-    # retry loop while the database container becomes ready). Run it in a
-    # worker thread so we don't block the asyncio event loop during boot.
-    def _startup() -> None:
+    # Load domain on startup
+    settings = get_settings()
+    domain_name = settings.raggo_domain
+    
+    def _startup() -> DomainPack:
         _wait_for_database()
         _ensure_pgvector_extension()
-        _validate_embedding_dim()
-        _run_startup_seed()
-
-    await anyio.to_thread.run_sync(_startup)
-
-    # Kick off a bounded ingestion pass in the background. Running it as a
-    # background task (rather than awaiting) ensures `docker compose up`
-    # reaches a healthy `/health` quickly even when 50k seed logs still
-    # need embeddings. The pass is naturally bounded by
-    # `STARTUP_INGEST_LIMIT`; a threading.Event lets us request a clean
-    # cooperative stop on shutdown without waiting for the worker thread
-    # to finish on its own (anyio cancellation does not interrupt threads).
+        
+        # Load domain
+        logger.info("Loading domain: %s", domain_name)
+        domain = load_domain(domain_name)
+        logger.info(
+            "Domain loaded: %s v%s — %s",
+            domain.display.title,
+            domain.display.version,
+            domain.display.description,
+        )
+        
+        # Initialize domain schema and seed
+        _run_init_sql_if_needed(domain)
+        _run_startup_seed(domain)
+        
+        return domain
+    
+    domain = await anyio.to_thread.run_sync(_startup)
+    
+    # Store domain on app.state for request handlers
+    app.state.domain = domain
+    
+    # Kick off background ingestion
     stop_event = threading.Event()
-    ingest_task = asyncio.create_task(_run_startup_ingestion(stop_event))
+    ingest_task = asyncio.create_task(_run_startup_ingestion(domain, stop_event))
     try:
         yield
     finally:
         stop_event.set()
         if not ingest_task.done():
             try:
-                # Give the worker a brief grace period to observe the flag
-                # between batches, then move on regardless.
                 await asyncio.wait_for(asyncio.shield(ingest_task), timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # pragma: no cover - best-effort
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                 pass
 
 
-async def _run_startup_ingestion(stop_event: threading.Event) -> None:
+async def _run_startup_ingestion(domain: DomainPack, stop_event: threading.Event) -> None:
+    """Run bounded ingestion for all domain embeddable resources."""
     settings = get_settings()
     if settings.startup_ingest_limit <= 0:
         logger.info("Startup ingestion disabled (STARTUP_INGEST_LIMIT<=0).")
         return
-
-    def _do_ingest() -> dict:
-        result = ingest_unembedded_logs(
+    
+    def _do_ingest() -> Dict[str, Any]:
+        return ingest_all_for_domain(
+            domain=domain,
             limit=settings.startup_ingest_limit,
+            batch_size=settings.ingest_batch_size,
             should_stop=stop_event.is_set,
         )
-        return result.to_dict()
-
+    
     logger.info(
         "Starting bounded startup ingestion (limit=%d, batch_size=%d)…",
         settings.startup_ingest_limit,
@@ -192,13 +189,13 @@ async def _run_startup_ingestion(stop_event: threading.Event) -> None:
     )
     try:
         result = await anyio.to_thread.run_sync(_do_ingest, abandon_on_cancel=True)
-    except Exception as exc:  # pragma: no cover - defensive, logs and exits
+    except Exception as exc:
         logger.warning("Startup ingestion failed: %s", exc)
         return
     logger.info("Startup ingestion finished: %s", result)
 
 
-app = FastAPI(title="rag-flight-lab", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="raggo", version="0.2.0", lifespan=lifespan)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -208,7 +205,7 @@ def health() -> HealthResponse:
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:
         logger.warning("Health check DB ping failed: %s", exc)
         db_status = "unavailable"
     return HealthResponse(status="ok", database=db_status)
@@ -216,99 +213,124 @@ def health() -> HealthResponse:
 
 @app.get("/stats", response_model=StatsResponse)
 def stats() -> StatsResponse:
+    """Return dashboard stats from the current domain."""
+    domain: DomainPack = app.state.domain
     with session_scope() as session:
-        flights = session.scalar(select(func.count()).select_from(Flight)) or 0
-        logs = session.scalar(select(func.count()).select_from(FlightLog)) or 0
-        incidents = session.scalar(select(func.count()).select_from(Incident)) or 0
-        embedded = (
-            session.scalar(
-                select(func.count())
-                .select_from(FlightLog)
-                .where(FlightLog.embedding.is_not(None))
-            )
-            or 0
-        )
-    return StatsResponse(
-        flights=flights,
-        flight_logs=logs,
-        incidents=incidents,
-        embedded_logs=embedded,
-        unembedded_logs=logs - embedded,
-    )
+        domain_stats = domain.stats(session)
+    return StatsResponse(**domain_stats)
+
+
+@app.get("/domain")
+def domain_info() -> Dict[str, Any]:
+    """Return metadata about the current domain."""
+    domain: DomainPack = app.state.domain
+    return {
+        "name": domain.name,
+        "display": {
+            "title": domain.display.title,
+            "description": domain.display.description,
+            "version": domain.display.version,
+        },
+        "resources": [r.name for r in domain.embeddable_resources],
+        "sql_tools": [t.name for t in domain.sql_tools],
+    }
 
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(request: IngestRequest | None = None) -> IngestResponse:
-    """Run a bounded ingestion pass over logs without embeddings."""
+    """Run a bounded ingestion pass over domain embeddable resources."""
+    domain: DomainPack = app.state.domain
     payload = request or IngestRequest()
-
-    def _run() -> dict:
-        result = ingest_unembedded_logs(
+    
+    def _run() -> Dict[str, Any]:
+        return ingest_all_for_domain(
+            domain=domain,
             limit=payload.limit,
             batch_size=payload.batch_size,
         )
-        return result.to_dict()
-
+    
     result = await anyio.to_thread.run_sync(_run)
     return IngestResponse(**result)
 
 
 @app.post("/search/vector", response_model=VectorSearchResponse)
 async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
-    """Embed `query` and return the most similar flight logs."""
-
-    def _run() -> list[dict]:
+    """Embed query and return most similar items from specified resource."""
+    domain: DomainPack = app.state.domain
+    
+    # Find resource by name (default to first resource if not specified)
+    resource = None
+    resource_name = request.resource or (domain.embeddable_resources[0].name if domain.embeddable_resources else None)
+    
+    if resource_name is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No embeddable resources available in domain.",
+        )
+    
+    for r in domain.embeddable_resources:
+        if r.name == resource_name:
+            resource = r
+            break
+    
+    if resource is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown resource: {resource_name}. Available: {[r.name for r in domain.embeddable_resources]}",
+        )
+    
+    def _run() -> List[Dict[str, Any]]:
         with session_scope() as session:
-            return search_logs(
+            return search(
                 session=session,
+                resource=resource,
                 query_text=request.query,
                 top_k=request.top_k,
                 filters=request.filters,
             )
-
+    
     try:
         rows = await anyio.to_thread.run_sync(_run)
     except VectorSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VectorSearchDependencyError as exc:
-        # Upstream embedding service unavailable / failing — surface as a
-        # 503 so callers and monitoring treat it as a transient server-side
-        # condition rather than a bad request.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-
+    
     return VectorSearchResponse(
         query=request.query,
+        resource=resource_name,
         top_k=request.top_k,
-        results=[VectorSearchResult(**row) for row in rows],
+        results=rows,
     )
 
 
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest) -> QueryResponse:
-    """Run the basic RAG agent for a single question.
-
-    The agent classifies intent deterministically, selects safe SQL
-    tools and/or vector search, retrieves evidence, and asks the local
-    generation model for a grounded answer. The model never executes
-    arbitrary SQL — only allowlisted, parameterised tools in
-    :mod:`app.safe_sql_tools` are used.
+    """Run the RAG agent on a question using the current domain.
+    
+    The agent classifies intent, selects safe SQL tools and/or vector
+    search, retrieves evidence, and asks the local generation model for
+    a grounded answer. The model never executes arbitrary SQL — only
+    allowlisted, parameterised tools are used.
     """
-
-    def _run() -> agent_module.AgentResult:
+    domain: DomainPack = app.state.domain
+    
+    def _run() -> orchestrator.AgentResult:
         with session_scope() as session:
-            return agent_module.run(
+            return orchestrator.run(
                 session=session,
+                domain=domain,
                 question=request.question,
                 top_k=request.top_k,
             )
-
+    
     try:
         result = await anyio.to_thread.run_sync(_run)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    
     return QueryResponse(
         answer=result.answer,
-        evidence=[QueryEvidence(**item) for item in result.evidence],
+        evidence=result.evidence,
         agent_trace=result.agent_trace,
     )

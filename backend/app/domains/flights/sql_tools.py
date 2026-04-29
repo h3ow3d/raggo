@@ -1,26 +1,28 @@
-"""Allowlisted, parameterised SQL tools for the agent.
+"""Allowlisted, parameterised SQL tools for the flights domain.
 
 The agent must never execute arbitrary model-generated SQL. Instead it
 chooses among a small set of well-defined functions in this module. Each
 function:
 
-- accepts plain Python arguments (validated below),
-- builds its query through SQLAlchemy ORM / Core (parameterised),
-- applies a sensible default and hard cap on result count,
-- returns a list of plain dicts that are easy to serialise as evidence.
+- accepts plain Python arguments validated by Pydantic models
+- builds its query through SQLAlchemy ORM / Core (parameterised)
+- applies a sensible default and hard cap on result count
+- returns a list of plain dicts that are easy to serialise as evidence
 
-These tools are also useful directly from the API for ad-hoc inspection.
+These tools are wrapped in SafeSqlTool instances and exported as SQL_TOOLS.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from .models import Flight, FlightLog, Incident
+from app.core.domain import SafeSqlTool
+from app.domains.flights.models import Flight, FlightLog, Incident
 
 # ---------------------------------------------------------------------------
 # Bounds and allowlists
@@ -56,6 +58,13 @@ def _clamp_limit(limit: Optional[int]) -> int:
     if limit > MAX_LIMIT:
         return MAX_LIMIT
     return int(limit)
+
+
+def _format_dt(value: Any) -> str:
+    """Format datetime for evidence."""
+    if isinstance(value, datetime):
+        return value.replace(microsecond=0).isoformat()
+    return str(value) if value is not None else ""
 
 
 def _serialise_flight(flight: Flight) -> Dict[str, Any]:
@@ -109,6 +118,42 @@ def _serialise_incident(
         row["origin"] = flight.origin
         row["destination"] = flight.destination
     return row
+
+
+# ---------------------------------------------------------------------------
+# Pydantic argument models
+# ---------------------------------------------------------------------------
+
+
+class GetDelayedFlightsArgs(BaseModel):
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+
+
+class GetIncidentsBySeverityArgs(BaseModel):
+    severity: str | List[str]
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+
+
+class GetFlightsByAirportArgs(BaseModel):
+    airport: str = Field(..., min_length=1)
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+
+
+class GetLogsByFlightArgs(BaseModel):
+    flight_id: int = Field(..., ge=1)
+    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+
+
+class GetTopDelayAirportsArgs(BaseModel):
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 # ---------------------------------------------------------------------------
@@ -310,16 +355,115 @@ def get_top_delay_airports(
 
 
 # ---------------------------------------------------------------------------
-# Allowlist used by the agent
+# Evidence builders (convert tool result rows to evidence items)
 # ---------------------------------------------------------------------------
 
-# Mapping of safe tool name -> callable. The agent only invokes tools
-# whose names appear in this dict; raw model output is never used to
-# pick a function or build SQL.
-SAFE_TOOLS: Dict[str, Any] = {
-    "get_delayed_flights": get_delayed_flights,
-    "get_incidents_by_severity": get_incidents_by_severity,
-    "get_flights_by_airport": get_flights_by_airport,
-    "get_logs_by_flight": get_logs_by_flight,
-    "get_top_delay_airports": get_top_delay_airports,
-}
+
+def _evidence_from_flight(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "flight",
+        "id": int(row["id"]),
+        "flight_number": row.get("flight_number"),
+        "airline": row.get("airline"),
+        "origin": row.get("origin"),
+        "destination": row.get("destination"),
+        "scheduled_departure": _format_dt(row.get("scheduled_departure")),
+        "actual_departure": _format_dt(row.get("actual_departure")),
+        "scheduled_arrival": _format_dt(row.get("scheduled_arrival")),
+        "actual_arrival": _format_dt(row.get("actual_arrival")),
+        "status": row.get("status"),
+    }
+
+
+def _evidence_from_incident(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "incident",
+        "id": int(row["id"]),
+        "flight_id": row.get("flight_id"),
+        "flight_number": row.get("flight_number"),
+        "origin": row.get("origin"),
+        "destination": row.get("destination"),
+        "incident_time": _format_dt(row.get("incident_time")),
+        "severity": row.get("severity"),
+        "category": row.get("category"),
+        "resolution_status": row.get("resolution_status"),
+        "message": row.get("description"),
+    }
+
+
+def _evidence_from_log(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "flight_log",
+        "id": int(row["id"]),
+        "flight_id": row.get("flight_id"),
+        "flight_number": row.get("flight_number"),
+        "origin": row.get("origin"),
+        "destination": row.get("destination"),
+        "log_time": _format_dt(row.get("log_time")),
+        "log_type": row.get("log_type"),
+        "source_system": row.get("source_system"),
+        "severity": row.get("severity"),
+        "message": row.get("message"),
+    }
+
+
+def _evidence_from_airport_count(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "type": "airport_delay_count",
+        "airport": row.get("airport"),
+        "delay_count": row.get("delay_count"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# SafeSqlTool exports
+# ---------------------------------------------------------------------------
+
+
+SQL_TOOLS: Tuple[SafeSqlTool, ...] = (
+    SafeSqlTool(
+        name="get_delayed_flights",
+        func=get_delayed_flights,
+        args_model=GetDelayedFlightsArgs,
+        evidence_builder=_evidence_from_flight,
+        description="Return flights that are delayed in a time window",
+    ),
+    SafeSqlTool(
+        name="get_incidents_by_severity",
+        func=get_incidents_by_severity,
+        args_model=GetIncidentsBySeverityArgs,
+        evidence_builder=_evidence_from_incident,
+        description="Return incidents matching one or more severities",
+    ),
+    SafeSqlTool(
+        name="get_flights_by_airport",
+        func=get_flights_by_airport,
+        args_model=GetFlightsByAirportArgs,
+        evidence_builder=_evidence_from_flight,
+        description="Return flights with origin or destination matching an airport code",
+    ),
+    SafeSqlTool(
+        name="get_logs_by_flight",
+        func=get_logs_by_flight,
+        args_model=GetLogsByFlightArgs,
+        evidence_builder=_evidence_from_log,
+        description="Return the most recent logs for a given flight",
+    ),
+    SafeSqlTool(
+        name="get_top_delay_airports",
+        func=get_top_delay_airports,
+        args_model=GetTopDelayAirportsArgs,
+        evidence_builder=_evidence_from_airport_count,
+        description="Return airports most frequently associated with delayed flights",
+    ),
+)
+
+
+__all__ = [
+    "SQL_TOOLS",
+    "get_delayed_flights",
+    "get_incidents_by_severity",
+    "get_flights_by_airport",
+    "get_logs_by_flight",
+    "get_top_delay_airports",
+]
