@@ -1,14 +1,20 @@
-# rag-flight-lab — Phase 1 Docker Compose
+# rag-flight-lab — Docker Compose (Phase 1 + Phase 2)
 #
-# Brings up PostgreSQL (with pgvector) and the FastAPI backend.
-# Frontend and model services arrive in later phases.
+# Brings up PostgreSQL (with pgvector), the FastAPI backend, and the
+# embedding model service. Generation model and frontend arrive in later
+# phases.
 #
 # Security notes:
 #   - postgres has NO host port mapping and is attached only to the
 #     internal `database_net` network.
-#   - `database_net` and `model_net` are declared as `internal: true` so
-#     containers attached to them cannot reach the host network or the
-#     internet. The backend is the only service bridging those networks.
+#   - embedding-model has NO host port mapping and is attached only to the
+#     internal `model_net` network. It cannot be reached from the host or
+#     from the frontend.
+#   - `database_net` and `model_net` are declared as `internal: true`.
+#     Services attached only to those internal networks (such as postgres
+#     and embedding-model) are isolated from the host network/internet.
+#     The backend intentionally bridges `frontend_net` with those internal
+#     networks, so it can still reach the host/internet via `frontend_net`.
 #   - The backend exposes port 8000 to the host for development only.
 
 services:
@@ -53,10 +59,46 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     networks:
       # Backend bridges the host-facing frontend network and the internal
-      # database/model networks. In Phase 1 only database_net is used.
+      # database/model networks. The backend is the only service permitted
+      # to reach the embedding-model on `model_net`.
       - frontend_net
       - database_net
       - model_net
+
+  embedding-model:
+    # Build the multi-stage image: the `weights` stage downloads the
+    # configured sentence-transformers model at build time and the runtime
+    # stage copies it in. The runtime container does not have outbound
+    # network access (it is only on the internal `model_net`) and runs
+    # with HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1.
+    build:
+      context: ./models/embedding
+      args:
+        EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+        EMBEDDING_DIM: ${EMBEDDING_DIM:-384}
+    image: rag-flight-lab/embedding-model:latest
+    restart: unless-stopped
+    environment:
+      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-384}
+      EMBEDDING_MODEL_DIR: /models/embedding
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+    # Internal-only: no `ports:` mapping. The service is reachable from
+    # the backend at http://embedding-model:8000 over `model_net`.
+    networks:
+      - model_net
+    # Container hardening. The image is fully self-contained (weights baked
+    # in), so the filesystem can be read-only with a small tmpfs for any
+    # transient scratch needs.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 networks:
   frontend_net:
