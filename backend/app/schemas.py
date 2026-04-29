@@ -124,3 +124,51 @@ class QueryResponse(BaseModel):
     evidence: List[QueryEvidence]
     agent_trace: Dict[str, Any]
 
+
+# --- Phase 6: flights & logs (frontend support) -----------------------------
+
+
+class FlightSummary(BaseModel):
+    """Minimal flight payload used by the frontend flight selector."""
+
+    id: int
+    flight_number: str
+    airline: str
+    origin: str
+    destination: str
+    scheduled_departure: datetime
+    status: str
+
+
+class FlightListResponse(BaseModel):
+    results: List[FlightSummary]
+
+
+class CreateLogRequest(BaseModel):
+    """Body for `POST /logs`.
+
+    `log_time` is optional; it defaults to "now" on the server when not
+    provided. `metadata` is a free-form JSON object stored in the
+    `structured_metadata` column.
+    """
+
+    flight_id: int = Field(..., ge=1)
+    log_type: str = Field(..., min_length=1, max_length=64)
+    source_system: str = Field(..., min_length=1, max_length=64)
+    severity: str = Field(..., min_length=1, max_length=32)
+    message: str = Field(..., min_length=1)
+    log_time: Optional[datetime] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class CreateLogResponse(BaseModel):
+    id: int
+    flight_id: int
+    log_time: datetime
+    log_type: str
+    source_system: str
+    severity: str
+    message: str
+    embedded: bool
+    embedding_error: Optional[str] = None
+
