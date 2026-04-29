@@ -1,0 +1,72 @@
+# rag-flight-lab — Phase 1 Docker Compose
+#
+# Brings up PostgreSQL (with pgvector) and the FastAPI backend.
+# Frontend and model services arrive in later phases.
+#
+# Security notes:
+#   - postgres has NO host port mapping and is attached only to the
+#     internal `database_net` network.
+#   - `database_net` and `model_net` are declared as `internal: true` so
+#     containers attached to them cannot reach the host network or the
+#     internet. The backend is the only service bridging those networks.
+#   - The backend exposes port 8000 to the host for development only.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rag_flight_lab}
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - database_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DB:-rag_flight_lab}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-rag_flight_lab}
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_dev_password}
+      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-384}
+      SEED_FLIGHT_COUNT: ${SEED_FLIGHT_COUNT:-5000}
+      SEED_LOG_COUNT: ${SEED_LOG_COUNT:-50000}
+      SEED_INCIDENT_COUNT: ${SEED_INCIDENT_COUNT:-500}
+    ports:
+      # Development-only API port. Safe to remove for non-dev deployments.
+      - "${BACKEND_PORT:-8000}:8000"
+    networks:
+      # Backend bridges the host-facing frontend network and the internal
+      # database/model networks. In Phase 1 only database_net is used.
+      - frontend_net
+      - database_net
+      - model_net
+
+networks:
+  frontend_net:
+    driver: bridge
+  database_net:
+    driver: bridge
+    internal: true
+  model_net:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
