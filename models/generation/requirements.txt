@@ -1,0 +1,21 @@
+# Pinned dependencies for the generation model service.
+#
+# Versions are conservative and CPU-friendly. The runtime stage installs
+# the same set, but the model weights themselves are fetched only in the
+# build-time `weights` stage (see download_model.py).
+#
+# NOTE: torch is intentionally *not* listed here. The CPU-only PyTorch
+# wheel is published on a separate index (download.pytorch.org) and we do
+# not want that index to be consulted for resolving any other package
+# (supply-chain hardening). The Dockerfile installs torch in its own pip
+# step against that index, then installs everything in this file from
+# PyPI only.
+
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+transformers==4.48.3
+huggingface-hub==0.27.1
+accelerate==1.2.1
+safetensors==0.4.5

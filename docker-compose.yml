@@ -1,20 +1,21 @@
-# rag-flight-lab — Docker Compose (Phase 1 + Phase 2)
+# rag-flight-lab — Docker Compose (Phase 1 + Phase 2 + Phase 3)
 #
-# Brings up PostgreSQL (with pgvector), the FastAPI backend, and the
-# embedding model service. Generation model and frontend arrive in later
-# phases.
+# Brings up PostgreSQL (with pgvector), the FastAPI backend, the
+# embedding model service, and the generation model service. Frontend
+# arrives in a later phase.
 #
 # Security notes:
 #   - postgres has NO host port mapping and is attached only to the
 #     internal `database_net` network.
-#   - embedding-model has NO host port mapping and is attached only to the
-#     internal `model_net` network. It cannot be reached from the host or
-#     from the frontend.
+#   - embedding-model and generation-model have NO host port mapping and
+#     are attached only to the internal `model_net` network. They cannot
+#     be reached from the host or from the frontend.
 #   - `database_net` and `model_net` are declared as `internal: true`.
-#     Services attached only to those internal networks (such as postgres
-#     and embedding-model) are isolated from the host network/internet.
-#     The backend intentionally bridges `frontend_net` with those internal
-#     networks, so it can still reach the host/internet via `frontend_net`.
+#     Services attached only to those internal networks (such as
+#     postgres, embedding-model, and generation-model) are isolated from
+#     the host network/internet. The backend intentionally bridges
+#     `frontend_net` with those internal networks, so it can still reach
+#     the host/internet via `frontend_net`.
 #   - The backend exposes port 8000 to the host for development only.
 
 services:
@@ -51,6 +52,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_dev_password}
       EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-384}
+      GENERATION_MODEL_NAME: ${GENERATION_MODEL_NAME:-Qwen/Qwen2.5-0.5B-Instruct}
       SEED_FLIGHT_COUNT: ${SEED_FLIGHT_COUNT:-5000}
       SEED_LOG_COUNT: ${SEED_LOG_COUNT:-50000}
       SEED_INCIDENT_COUNT: ${SEED_INCIDENT_COUNT:-500}
@@ -92,6 +94,40 @@ services:
     # Container hardening. The image is fully self-contained (weights baked
     # in), so the filesystem can be read-only with a small tmpfs for any
     # transient scratch needs.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  generation-model:
+    # Build the multi-stage image: the `weights` stage downloads the
+    # configured Hugging Face generation model at build time and the
+    # runtime stage copies it in. The runtime container does not have
+    # outbound network access (it is only on the internal `model_net`)
+    # and runs with HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1.
+    build:
+      context: ./models/generation
+      args:
+        GENERATION_MODEL_NAME: ${GENERATION_MODEL_NAME:-Qwen/Qwen2.5-0.5B-Instruct}
+        MODEL_RUNTIME: ${MODEL_RUNTIME:-cpu}
+    image: rag-flight-lab/generation-model:latest
+    restart: unless-stopped
+    environment:
+      GENERATION_MODEL_NAME: ${GENERATION_MODEL_NAME:-Qwen/Qwen2.5-0.5B-Instruct}
+      GENERATION_MODEL_DIR: /models/generation
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+    # Internal-only: no `ports:` mapping. The service is reachable from
+    # the backend at http://generation-model:8000 over `model_net`.
+    networks:
+      - model_net
+    # Container hardening. The image is fully self-contained (weights
+    # baked in), so the filesystem can be read-only with a small tmpfs
+    # for any transient scratch needs (HF caches, tokenizer scratch).
     read_only: true
     tmpfs:
       - /tmp
