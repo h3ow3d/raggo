@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -42,7 +43,11 @@ from .schemas import (
     VectorSearchResult,
 )
 from .seed import seed_database
-from .vector_search import VectorSearchError, search_logs
+from .vector_search import (
+    VectorSearchDependencyError,
+    VectorSearchError,
+    search_logs,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -145,27 +150,35 @@ async def lifespan(app: FastAPI):
     # background task (rather than awaiting) ensures `docker compose up`
     # reaches a healthy `/health` quickly even when 50k seed logs still
     # need embeddings. The pass is naturally bounded by
-    # `STARTUP_INGEST_LIMIT`, so it cannot run forever.
-    ingest_task = asyncio.create_task(_run_startup_ingestion())
+    # `STARTUP_INGEST_LIMIT`; a threading.Event lets us request a clean
+    # cooperative stop on shutdown without waiting for the worker thread
+    # to finish on its own (anyio cancellation does not interrupt threads).
+    stop_event = threading.Event()
+    ingest_task = asyncio.create_task(_run_startup_ingestion(stop_event))
     try:
         yield
     finally:
+        stop_event.set()
         if not ingest_task.done():
-            ingest_task.cancel()
             try:
-                await ingest_task
-            except (asyncio.CancelledError, Exception):  # pragma: no cover - best-effort
+                # Give the worker a brief grace period to observe the flag
+                # between batches, then move on regardless.
+                await asyncio.wait_for(asyncio.shield(ingest_task), timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):  # pragma: no cover - best-effort
                 pass
 
 
-async def _run_startup_ingestion() -> None:
+async def _run_startup_ingestion(stop_event: threading.Event) -> None:
     settings = get_settings()
     if settings.startup_ingest_limit <= 0:
         logger.info("Startup ingestion disabled (STARTUP_INGEST_LIMIT<=0).")
         return
 
     def _do_ingest() -> dict:
-        result = ingest_unembedded_logs(limit=settings.startup_ingest_limit)
+        result = ingest_unembedded_logs(
+            limit=settings.startup_ingest_limit,
+            should_stop=stop_event.is_set,
+        )
         return result.to_dict()
 
     logger.info(
@@ -174,7 +187,7 @@ async def _run_startup_ingestion() -> None:
         settings.ingest_batch_size,
     )
     try:
-        result = await anyio.to_thread.run_sync(_do_ingest)
+        result = await anyio.to_thread.run_sync(_do_ingest, abandon_on_cancel=True)
     except Exception as exc:  # pragma: no cover - defensive, logs and exits
         logger.warning("Startup ingestion failed: %s", exc)
         return
@@ -253,6 +266,11 @@ async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
         rows = await anyio.to_thread.run_sync(_run)
     except VectorSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VectorSearchDependencyError as exc:
+        # Upstream embedding service unavailable / failing — surface as a
+        # 503 so callers and monitoring treat it as a transient server-side
+        # condition rather than a bad request.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return VectorSearchResponse(
         query=request.query,

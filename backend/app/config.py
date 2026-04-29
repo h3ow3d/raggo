@@ -45,13 +45,17 @@ class Settings(BaseSettings):
     )
     # Number of logs sent to the embedding service per HTTP call. Must stay
     # at or below the embedding service's MAX_BATCH (default 128).
-    ingest_batch_size: int = Field(default=128, alias="INGEST_BATCH_SIZE")
+    ingest_batch_size: int = Field(
+        default=128, ge=1, le=128, alias="INGEST_BATCH_SIZE"
+    )
     # Cap on how many logs the startup ingestion task will embed before
     # yielding. Keeps API/UI responsive on first boot with 50k seed logs.
-    startup_ingest_limit: int = Field(default=2000, alias="STARTUP_INGEST_LIMIT")
+    startup_ingest_limit: int = Field(
+        default=2000, ge=0, alias="STARTUP_INGEST_LIMIT"
+    )
     # Per-request HTTP timeout for embedding calls (seconds).
     embedding_request_timeout: float = Field(
-        default=60.0, alias="EMBEDDING_REQUEST_TIMEOUT"
+        default=60.0, gt=0, alias="EMBEDDING_REQUEST_TIMEOUT"
     )
 
     @property

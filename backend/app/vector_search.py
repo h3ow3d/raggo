@@ -35,8 +35,22 @@ _ALLOWED_FILTERS: Dict[str, Any] = {
 }
 
 
-class VectorSearchError(RuntimeError):
-    """Raised for client-correctable vector search failures."""
+class VectorSearchError(ValueError):
+    """Raised for client-correctable vector search failures.
+
+    These are validation/usage problems (empty query, bad filter key,
+    non-positive top_k, dim mismatch with the configured schema) and
+    should map to HTTP 4xx. Upstream dependency failures are surfaced
+    separately as :class:`VectorSearchDependencyError`.
+    """
+
+
+class VectorSearchDependencyError(RuntimeError):
+    """Raised when an upstream dependency (embedding service) fails.
+
+    These are server-side/transient conditions and should map to HTTP
+    5xx (typically 502/503), not 400.
+    """
 
 
 def _build_filter_clauses(filters: Optional[Dict[str, Any]]):
@@ -82,7 +96,9 @@ def search_logs(
         try:
             embed_result = embedding_client.embed([query_text])
         except EmbeddingServiceError as exc:
-            raise VectorSearchError(f"failed to embed query: {exc}") from exc
+            raise VectorSearchDependencyError(
+                f"failed to embed query: {exc}"
+            ) from exc
     finally:
         if owns_client:
             embedding_client.close()

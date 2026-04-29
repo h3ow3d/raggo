@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -64,12 +64,17 @@ def ingest_unembedded_logs(
     limit: Optional[int] = None,
     batch_size: Optional[int] = None,
     client: Optional[EmbeddingClient] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> IngestionResult:
     """Embed up to `limit` logs that currently have no embedding.
 
     Each batch is embedded via the embedding model service and committed
     in its own transaction so partial progress is preserved if a later
     batch fails.
+
+    `should_stop`, if provided, is consulted between batches so callers
+    (e.g. the FastAPI lifespan task on shutdown) can request cooperative
+    cancellation without waiting for the configured `limit` to drain.
     """
     settings = get_settings()
     effective_limit = settings.startup_ingest_limit if limit is None else int(limit)
@@ -86,6 +91,9 @@ def ingest_unembedded_logs(
     try:
         remaining = effective_limit
         while remaining > 0:
+            if should_stop is not None and should_stop():
+                logger.info("Ingestion stopping early at caller request.")
+                return result
             chunk_size = min(effective_batch, remaining)
 
             # New session per batch so each commit is independent and

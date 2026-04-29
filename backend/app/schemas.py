@@ -38,8 +38,11 @@ class IngestRequest(BaseModel):
     batch_size: Optional[int] = Field(
         default=None,
         ge=1,
-        le=512,
-        description="Override INGEST_BATCH_SIZE for this run.",
+        le=128,
+        description=(
+            "Override INGEST_BATCH_SIZE for this run. Capped at 128 to stay "
+            "within the embedding service's default MAX_BATCH."
+        ),
     )
 
 
