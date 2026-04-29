@@ -58,6 +58,34 @@ class Settings(BaseSettings):
         default=60.0, gt=0, alias="EMBEDDING_REQUEST_TIMEOUT"
     )
 
+    # --- Generation / agent ----------------------------------------------
+    # URL of the internal generation model service (only reachable from
+    # the backend over `model_net`).
+    generation_service_url: str = Field(
+        default="http://generation-model:8000",
+        alias="GENERATION_SERVICE_URL",
+    )
+    # Per-request HTTP timeout for generation calls (seconds). Generation
+    # is much slower than embedding, especially on CPU.
+    generation_request_timeout: float = Field(
+        default=180.0, gt=0, alias="GENERATION_REQUEST_TIMEOUT"
+    )
+    # Caps on agent retrieval. Bounds evidence size sent to the LLM and
+    # the work done per query.
+    agent_max_vector_results: int = Field(
+        default=8, ge=1, le=50, alias="AGENT_MAX_VECTOR_RESULTS"
+    )
+    agent_max_sql_results: int = Field(
+        default=10, ge=1, le=50, alias="AGENT_MAX_SQL_RESULTS"
+    )
+    agent_max_new_tokens: int = Field(
+        default=400, ge=16, le=1024, alias="AGENT_MAX_NEW_TOKENS"
+    )
+    generation_model_name: str = Field(
+        default="Qwen/Qwen2.5-0.5B-Instruct",
+        alias="GENERATION_MODEL_NAME",
+    )
+
     @property
     def database_url(self) -> str:
         # Use SQLAlchemy's URL builder so credentials containing reserved

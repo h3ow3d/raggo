@@ -87,3 +87,40 @@ class VectorSearchResponse(BaseModel):
     top_k: int
     results: List[VectorSearchResult]
 
+
+# --- Phase 5: agent / query -------------------------------------------------
+
+
+class QueryRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="User question.")
+    top_k: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=50,
+        description=(
+            "Optional cap on vector-search results. Capped by "
+            "AGENT_MAX_VECTOR_RESULTS regardless of value."
+        ),
+    )
+
+
+class QueryEvidence(BaseModel):
+    """Loosely typed evidence item.
+
+    The agent emits several evidence shapes (flight logs, incidents,
+    flights, airport delay counts). Rather than a noisy union we expose
+    a permissive schema and rely on the ``type`` field for routing.
+    """
+
+    type: str
+    id: Optional[Any] = None
+    message: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+
+class QueryResponse(BaseModel):
+    answer: str
+    evidence: List[QueryEvidence]
+    agent_trace: Dict[str, Any]
+

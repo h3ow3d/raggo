@@ -33,10 +33,14 @@ from .config import get_settings
 from .database import engine, session_scope
 from .ingestion import ingest_unembedded_logs
 from .models import FlightLog, Flight, Incident
+from . import agent as agent_module
 from .schemas import (
     HealthResponse,
     IngestRequest,
     IngestResponse,
+    QueryEvidence,
+    QueryRequest,
+    QueryResponse,
     StatsResponse,
     VectorSearchRequest,
     VectorSearchResponse,
@@ -276,4 +280,35 @@ async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
         query=request.query,
         top_k=request.top_k,
         results=[VectorSearchResult(**row) for row in rows],
+    )
+
+
+@app.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest) -> QueryResponse:
+    """Run the basic RAG agent for a single question.
+
+    The agent classifies intent deterministically, selects safe SQL
+    tools and/or vector search, retrieves evidence, and asks the local
+    generation model for a grounded answer. The model never executes
+    arbitrary SQL — only allowlisted, parameterised tools in
+    :mod:`app.safe_sql_tools` are used.
+    """
+
+    def _run() -> agent_module.AgentResult:
+        with session_scope() as session:
+            return agent_module.run(
+                session=session,
+                question=request.question,
+                top_k=request.top_k,
+            )
+
+    try:
+        result = await anyio.to_thread.run_sync(_run)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return QueryResponse(
+        answer=result.answer,
+        evidence=[QueryEvidence(**item) for item in result.evidence],
+        agent_trace=result.agent_trace,
     )
