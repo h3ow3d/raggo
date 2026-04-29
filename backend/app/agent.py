@@ -412,11 +412,14 @@ def _run_sql_calls(
             continue
         # Record the call in the trace with sanitised kwargs (datetimes
         # serialised, no SQL strings — there are no SQL strings to leak).
+        sanitised_args = {
+            k: _format_dt(v) if isinstance(v, datetime) else v
+            for k, v in kwargs.items()
+        }
         trace_sql.append(
             {
                 "tool": name,
-                "args": {k: _format_dt(v) if isinstance(v, datetime) else v
-                         for k, v in kwargs.items()},
+                "args": sanitised_args,
                 "result_count": len(rows),
             }
         )

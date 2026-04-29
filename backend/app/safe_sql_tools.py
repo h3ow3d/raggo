@@ -230,7 +230,11 @@ def get_logs_by_flight(
     limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Return the most recent logs for a given flight."""
-    if flight_id is None or int(flight_id) <= 0:
+    try:
+        flight_id_int = int(flight_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("flight_id must be a positive integer") from exc
+    if flight_id_int <= 0:
         raise ValueError("flight_id must be a positive integer")
 
     eff_limit = _clamp_limit(limit)
@@ -238,7 +242,7 @@ def get_logs_by_flight(
     stmt = (
         select(FlightLog, Flight)
         .join(Flight, Flight.id == FlightLog.flight_id)
-        .where(FlightLog.flight_id == int(flight_id))
+        .where(FlightLog.flight_id == flight_id_int)
         .order_by(desc(FlightLog.log_time))
         .limit(eff_limit)
     )
