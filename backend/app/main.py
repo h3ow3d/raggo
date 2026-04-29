@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import OperationalError
 
+from .config import get_settings
 from .database import engine, session_scope
 from .models import FlightLog, Flight, Incident
 from .schemas import HealthResponse, StatsResponse
@@ -58,6 +59,47 @@ def _ensure_pgvector_extension() -> None:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
 
+def _validate_embedding_dim() -> None:
+    """Fail fast if `EMBEDDING_DIM` does not match the database schema.
+
+    `db/init.sql` declares `flight_logs.embedding` as `vector(384)`. If the
+    operator changes `EMBEDDING_DIM`, the ORM's `Vector(...)` type and the
+    actual column dimension will disagree and inserts will fail at runtime
+    with a confusing pgvector error. Raise a clear startup error instead.
+    """
+    settings = get_settings()
+    with engine.connect() as conn:
+        # `atttypmod` for a pgvector column encodes the declared dimension.
+        row = conn.execute(
+            text(
+                """
+                SELECT a.atttypmod
+                FROM pg_attribute a
+                JOIN pg_class c ON c.oid = a.attrelid
+                WHERE c.relname = 'flight_logs'
+                  AND a.attname = 'embedding'
+                  AND a.attnum > 0
+                  AND NOT a.attisdropped
+                """
+            )
+        ).first()
+    if row is None:
+        # Schema not yet present — init.sql hasn't run. Nothing to validate.
+        return
+    column_dim = int(row[0])
+    if column_dim <= 0:
+        # Unknown / not constrained; skip validation rather than guess.
+        return
+    if column_dim != settings.embedding_dim:
+        raise RuntimeError(
+            f"EMBEDDING_DIM={settings.embedding_dim} does not match the "
+            f"flight_logs.embedding column dimension ({column_dim}) created by "
+            f"db/init.sql. For Phase 1 the schema is fixed at 384 dimensions; "
+            f"either set EMBEDDING_DIM=384 or recreate the database with a "
+            f"matching schema (docker compose down -v)."
+        )
+
+
 def _run_startup_seed() -> None:
     with session_scope() as session:
         result = seed_database(session)
@@ -71,6 +113,7 @@ def _run_startup_seed() -> None:
 async def lifespan(app: FastAPI):
     _wait_for_database()
     _ensure_pgvector_extension()
+    _validate_embedding_dim()
     _run_startup_seed()
     yield
 
