@@ -10,6 +10,14 @@
 # TRANSFORMERS_OFFLINE=1 set so it cannot reach Hugging Face at runtime.
 
 ARG GENERATION_MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct
+# MODEL_RUNTIME selects which torch wheel is installed in the runtime
+# stage:
+#   cpu  -> CPU-only wheel from download.pytorch.org/whl/cpu (default)
+#   gpu  -> CUDA-enabled wheel from download.pytorch.org/whl/cu121
+# The default keeps `docker compose up --build` CPU-only. The GPU
+# Compose override (docker-compose.gpu.yml) sets MODEL_RUNTIME=gpu so
+# the resulting image can actually use an attached NVIDIA device.
+ARG MODEL_RUNTIME=cpu
 
 
 # ---------------------------------------------------------------------------
@@ -46,11 +54,13 @@ RUN mkdir -p /models/generation \
 FROM python:3.12-slim AS runtime
 
 ARG GENERATION_MODEL_NAME
+ARG MODEL_RUNTIME
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     GENERATION_MODEL_NAME=${GENERATION_MODEL_NAME} \
+    MODEL_RUNTIME=${MODEL_RUNTIME} \
     GENERATION_MODEL_DIR=/models/generation \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
@@ -58,13 +68,30 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install torch from the dedicated CPU-only PyTorch index, scoped to
-# torch alone via --index-url. Then install the rest from PyPI without
-# the torch index in scope, so unrelated packages can never be resolved
-# from download.pytorch.org (supply-chain hardening).
-RUN pip install --no-cache-dir \
-        --index-url https://download.pytorch.org/whl/cpu \
-        torch==2.6.0+cpu
+# Install torch from the dedicated PyTorch index, scoped to torch alone
+# via --index-url. Then install the rest from PyPI without the torch
+# index in scope, so unrelated packages can never be resolved from
+# download.pytorch.org (supply-chain hardening).
+#
+# `MODEL_RUNTIME` selects the wheel: `cpu` (default) keeps the image
+# small and CPU-only; `gpu` installs the CUDA 12.1 wheel so the
+# container can use an NVIDIA device when launched via the GPU Compose
+# override. We pin one version per variant explicitly to avoid implicit
+# resolution differences between indexes.
+RUN set -eux; \
+    case "${MODEL_RUNTIME}" in \
+      gpu) \
+        pip install --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cu121 \
+            torch==2.6.0 ;; \
+      cpu|"") \
+        pip install --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.6.0+cpu ;; \
+      *) \
+        echo "unsupported MODEL_RUNTIME='${MODEL_RUNTIME}' (expected cpu|gpu)" >&2; \
+        exit 1 ;; \
+    esac
 
 # Install runtime Python deps.
 COPY requirements.txt /app/requirements.txt

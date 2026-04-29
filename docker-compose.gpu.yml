@@ -12,12 +12,18 @@
 #   - GPU support applies only to the generation model service.
 #   - The internal `model_net` network and all container hardening from
 #     the base compose file still apply. No host ports are exposed.
-#   - The runtime image bakes a CPU torch wheel, so without a real GPU
-#     the service still falls back to CPU inference. Using this override
-#     on a GPU host lets the runtime detect CUDA and prefer the device.
+#   - This override sets `MODEL_RUNTIME=gpu` as a build arg so the
+#     runtime image installs a CUDA-enabled torch wheel; the resulting
+#     image is distinct from the default CPU image. Re-run with
+#     `--build` after switching modes.
 
 services:
   generation-model:
+    build:
+      args:
+        # Switches the runtime stage to install a CUDA-enabled torch
+        # wheel (see models/generation/Dockerfile).
+        MODEL_RUNTIME: gpu
     environment:
       MODEL_RUNTIME: gpu
       # Allow CUDA-using libraries to discover the GPU at runtime. With

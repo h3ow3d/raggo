@@ -112,6 +112,7 @@ services:
       context: ./models/generation
       args:
         GENERATION_MODEL_NAME: ${GENERATION_MODEL_NAME:-Qwen/Qwen2.5-0.5B-Instruct}
+        MODEL_RUNTIME: ${MODEL_RUNTIME:-cpu}
     image: rag-flight-lab/generation-model:latest
     restart: unless-stopped
     environment:

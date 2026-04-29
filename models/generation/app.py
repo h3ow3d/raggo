@@ -8,7 +8,12 @@ Contract (internal-only, see docker-compose.yml):
                    "temperature": 0.2}
         response: {"text": "...",
                    "model": "...",
-                   "finish_reason": "stop|length|timeout"}
+                   "finish_reason": "stop|length"}
+
+If generation exceeds the per-request wall-clock budget the service
+responds with HTTP 504 ("generation timed out after Ns") rather than a
+``GenerateResponse`` body — clients should treat 504 as the timeout
+signal.
 
 The model is loaded **once** at startup from a local directory baked into
 the image (default ``/models/generation``). The container has
@@ -23,6 +28,7 @@ import asyncio
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -85,7 +91,14 @@ class GenerateResponse(BaseModel):
 _tokenizer = None
 _model = None
 _model_name: str = ENV_MODEL_NAME
-_semaphore: Optional[asyncio.Semaphore] = None
+# Bounded executor: requests are dispatched onto it via
+# `loop.run_in_executor(_executor, ...)`. With `max_workers=MAX_CONCURRENCY`
+# the executor itself caps in-flight `model.generate` calls — even when an
+# `asyncio.wait_for(...)` times out the underlying worker thread keeps
+# running and continues to occupy a slot, so timed-out requests cannot
+# pile up additional concurrent generations. This is intentionally
+# stricter than a semaphore released on request exit.
+_executor: Optional[ThreadPoolExecutor] = None
 
 
 def _load_baked_metadata() -> Optional[dict]:
@@ -103,7 +116,7 @@ def _load_baked_metadata() -> Optional[dict]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load the model from the local image path. Never hits the network."""
-    global _tokenizer, _model, _model_name, _semaphore
+    global _tokenizer, _model, _model_name, _executor
 
     if not os.path.isdir(MODEL_DIR):
         raise RuntimeError(
@@ -163,9 +176,22 @@ async def lifespan(app: FastAPI):
     if _tokenizer.pad_token_id is None and _tokenizer.eos_token_id is not None:
         _tokenizer.pad_token_id = _tokenizer.eos_token_id
 
-    _semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
-    LOG.info("Loaded generation model '%s'", _model_name)
-    yield
+    _executor = ThreadPoolExecutor(
+        max_workers=MAX_CONCURRENCY,
+        thread_name_prefix="generate",
+    )
+    LOG.info(
+        "Loaded generation model '%s' (max_workers=%d)",
+        _model_name,
+        MAX_CONCURRENCY,
+    )
+    try:
+        yield
+    finally:
+        # Don't wait for in-flight generations on shutdown — the
+        # container is going away. cancel_futures is best-effort but the
+        # threads themselves can't be cancelled in CPython.
+        _executor.shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(
@@ -222,7 +248,7 @@ def _generate_sync(
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
-    if _model is None or _tokenizer is None or _semaphore is None:
+    if _model is None or _tokenizer is None or _executor is None:
         raise HTTPException(status_code=503, detail="model not loaded")
 
     prompt = req.prompt
@@ -248,37 +274,39 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE
     )
 
-    # Serialise heavy work and apply a wall-clock timeout. The blocking
-    # `model.generate` runs in a worker thread so the event loop stays
-    # responsive and `asyncio.wait_for` can enforce the deadline. Note:
-    # cancelling the awaitable doesn't stop the underlying thread, but
-    # the semaphore caps concurrency so this can't fan out unboundedly.
-    async with _semaphore:
-        loop = asyncio.get_running_loop()
-        try:
-            text, finish_reason = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    _generate_sync,
-                    prompt,
-                    max_new_tokens,
-                    temperature,
-                ),
-                timeout=GENERATE_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            LOG.warning(
-                "generation timed out after %.1fs (max_new_tokens=%d)",
-                GENERATE_TIMEOUT_SECONDS,
+    # Apply a wall-clock timeout. The blocking `model.generate` runs on
+    # the bounded `_executor` (max_workers=MAX_CONCURRENCY), so the event
+    # loop stays responsive and `asyncio.wait_for` can enforce the
+    # deadline. Concurrency is capped by the executor itself: when a
+    # request times out we cannot stop the underlying CPython thread,
+    # but it keeps occupying its worker slot until it finishes — so
+    # timed-out requests cannot pile up additional concurrent
+    # generations beyond `MAX_CONCURRENCY`.
+    loop = asyncio.get_running_loop()
+    try:
+        text, finish_reason = await asyncio.wait_for(
+            loop.run_in_executor(
+                _executor,
+                _generate_sync,
+                prompt,
                 max_new_tokens,
-            )
-            raise HTTPException(
-                status_code=504,
-                detail=(
-                    f"generation timed out after "
-                    f"{GENERATE_TIMEOUT_SECONDS:.0f}s"
-                ),
-            )
+                temperature,
+            ),
+            timeout=GENERATE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        LOG.warning(
+            "generation timed out after %.1fs (max_new_tokens=%d)",
+            GENERATE_TIMEOUT_SECONDS,
+            max_new_tokens,
+        )
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"generation timed out after "
+                f"{GENERATE_TIMEOUT_SECONDS:.0f}s"
+            ),
+        )
 
     return GenerateResponse(
         text=text,
