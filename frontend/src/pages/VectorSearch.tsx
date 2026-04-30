@@ -1,14 +1,14 @@
-import { FormEvent, useState } from "react";
-import { api, VectorSearchResponse } from "../api";
+import { FormEvent, useState } from 'react';
+import { api, VectorSearchResponse } from '../api';
 
-const SEVERITY_OPTIONS = ["", "info", "warning", "critical"];
-const SOURCE_OPTIONS = ["", "ACARS", "MEL", "CrewReport", "OPS", "ATC", "Maint"];
+const SEVERITY_OPTIONS = ['', 'info', 'warning', 'critical'];
+const SOURCE_OPTIONS = ['', 'ACARS', 'MEL', 'CrewReport', 'OPS', 'ATC', 'Maint'];
 
 export default function VectorSearch() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
   const [topK, setTopK] = useState(10);
-  const [severity, setSeverity] = useState("");
-  const [sourceSystem, setSourceSystem] = useState("");
+  const [severity, setSeverity] = useState('');
+  const [sourceSystem, setSourceSystem] = useState('');
 
   const [response, setResponse] = useState<VectorSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,21 +62,18 @@ export default function VectorSearch() {
             <label>Severity</label>
             <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
               {SEVERITY_OPTIONS.map((s) => (
-                <option key={s || "any"} value={s}>
-                  {s || "any"}
+                <option key={s || 'any'} value={s}>
+                  {s || 'any'}
                 </option>
               ))}
             </select>
           </div>
           <div>
             <label>Source system</label>
-            <select
-              value={sourceSystem}
-              onChange={(e) => setSourceSystem(e.target.value)}
-            >
+            <select value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
               {SOURCE_OPTIONS.map((s) => (
-                <option key={s || "any"} value={s}>
-                  {s || "any"}
+                <option key={s || 'any'} value={s}>
+                  {s || 'any'}
                 </option>
               ))}
             </select>
@@ -85,7 +82,7 @@ export default function VectorSearch() {
         {error && <div className="error">{error}</div>}
         <div style={{ marginTop: 12 }}>
           <button type="submit" disabled={loading || !query.trim()}>
-            {loading ? "Searching…" : "Search"}
+            {loading ? 'Searching…' : 'Search'}
           </button>
         </div>
       </form>
@@ -94,11 +91,9 @@ export default function VectorSearch() {
         <>
           <h2>
             Results · {response.results.length} match
-            {response.results.length === 1 ? "" : "es"}
+            {response.results.length === 1 ? '' : 'es'}
           </h2>
-          {response.results.length === 0 && (
-            <div className="muted">No matches.</div>
-          )}
+          {response.results.length === 0 && <div className="muted">No matches.</div>}
           <div className="result-list">
             {response.results.map((r) => {
               const m = r.metadata || {};
@@ -115,19 +110,15 @@ export default function VectorSearch() {
                     {flightNumber && (
                       <span>
                         flight {flightNumber}
-                        {origin && destination ? ` · ${origin} → ${destination}` : ""}
+                        {origin && destination ? ` · ${origin} → ${destination}` : ''}
                       </span>
                     )}
                     {logTime && <span>{new Date(logTime).toLocaleString()}</span>}
                     {sourceSystem && <span>{sourceSystem}</span>}
-                    {severity && (
-                      <span className={`severity-${severity}`}>{severity}</span>
-                    )}
+                    {severity && <span className={`severity-${severity}`}>{severity}</span>}
                     <span>
-                      similarity:{" "}
-                      {r.score !== null && r.score !== undefined
-                        ? r.score.toFixed(3)
-                        : "—"}
+                      similarity:{' '}
+                      {r.score !== null && r.score !== undefined ? r.score.toFixed(3) : '—'}
                     </span>
                   </div>
                   <div className="result-message">{r.text}</div>

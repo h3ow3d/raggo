@@ -17,7 +17,7 @@ def build_prompt(
     evidence_formatter: Callable[[List[Dict[str, Any]]], str],
 ) -> str:
     """Assemble the grounded prompt sent to the generation model.
-    
+
     Parameters
     ----------
     question : str
@@ -30,7 +30,7 @@ def build_prompt(
     evidence_formatter : Callable
         Domain-specific callable that formats the evidence list into a
         prompt-ready string with citation tags.
-    
+
     Returns
     -------
     str
@@ -43,9 +43,9 @@ def build_prompt(
         f"specific items by their ID using the format the evidence formatter "
         f"provides. Keep the answer concise (no more than ~6 sentences)."
     )
-    
+
     formatted_evidence = evidence_formatter(evidence)
-    
+
     return (
         f"{system_instructions}\n\n"
         f"EVIDENCE:\n{formatted_evidence}\n\n"

@@ -1,0 +1,8 @@
+# raggo CODEOWNERS
+#
+# Phase 0 scaffolding. The repository owner is the default reviewer for
+# every path. Per-directory owners can be added in later phases as the
+# project grows (e.g. once Helm chart, air-gap bundle, and CI workflows
+# pick up dedicated maintainers).
+
+* @h3ow3d

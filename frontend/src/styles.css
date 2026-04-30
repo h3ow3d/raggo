@@ -10,7 +10,7 @@
   --danger: #f87171;
   --warning: #fbbf24;
   --ok: #4ade80;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 * {
@@ -27,7 +27,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   font-size: 14px;
   line-height: 1.5;
 }
@@ -221,7 +226,7 @@ button.secondary:hover {
 }
 
 .notice {
-  background: rgba(74, 222, 128, 0.10);
+  background: rgba(74, 222, 128, 0.1);
   border: 1px solid var(--ok);
   color: var(--ok);
   padding: 10px 12px;

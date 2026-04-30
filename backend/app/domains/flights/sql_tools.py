@@ -15,7 +15,7 @@ These tools are wrapped in SafeSqlTool instances and exported as SQL_TOOLS.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, or_, select
@@ -35,9 +35,7 @@ MAX_LIMIT = 50
 
 # Severities mirror the seed data; centralising the allowlist keeps the
 # agent's intent classifier and the SQL layer in agreement.
-ALLOWED_SEVERITIES: frozenset[str] = frozenset(
-    {"info", "low", "warning", "critical"}
-)
+ALLOWED_SEVERITIES: frozenset[str] = frozenset({"info", "low", "warning", "critical"})
 
 # Statuses that count as "delayed" for the delay-oriented tools. The seed
 # also produces flights with "delayed" status; we additionally treat any
@@ -49,7 +47,7 @@ DELAYED_STATUSES: frozenset[str] = frozenset({"delayed"})
 DELAY_MINUTES_THRESHOLD = 15
 
 
-def _clamp_limit(limit: Optional[int]) -> int:
+def _clamp_limit(limit: int | None) -> int:
     """Clamp a caller-supplied limit to ``[1, MAX_LIMIT]``."""
     if limit is None:
         return DEFAULT_LIMIT
@@ -84,7 +82,7 @@ def _serialise_flight(flight: Flight) -> Dict[str, Any]:
     }
 
 
-def _serialise_log(log: FlightLog, flight: Optional[Flight] = None) -> Dict[str, Any]:
+def _serialise_log(log: FlightLog, flight: Flight | None = None) -> Dict[str, Any]:
     row: Dict[str, Any] = {
         "id": log.id,
         "flight_id": log.flight_id,
@@ -101,9 +99,7 @@ def _serialise_log(log: FlightLog, flight: Optional[Flight] = None) -> Dict[str,
     return row
 
 
-def _serialise_incident(
-    incident: Incident, flight: Optional[Flight] = None
-) -> Dict[str, Any]:
+def _serialise_incident(incident: Incident, flight: Flight | None = None) -> Dict[str, Any]:
     row: Dict[str, Any] = {
         "id": incident.id,
         "flight_id": incident.flight_id,
@@ -126,34 +122,34 @@ def _serialise_incident(
 
 
 class GetDelayedFlightsArgs(BaseModel):
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetIncidentsBySeverityArgs(BaseModel):
     severity: str | List[str]
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetFlightsByAirportArgs(BaseModel):
     airport: str = Field(..., min_length=1)
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetLogsByFlightArgs(BaseModel):
     flight_id: int = Field(..., ge=1)
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetTopDelayAirportsArgs(BaseModel):
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +159,9 @@ class GetTopDelayAirportsArgs(BaseModel):
 
 def get_delayed_flights(
     session: Session,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return flights that are delayed in ``[start_time, end_time]``.
 
@@ -176,9 +172,7 @@ def get_delayed_flights(
     eff_limit = _clamp_limit(limit)
 
     delay_seconds = DELAY_MINUTES_THRESHOLD * 60
-    delay_expr = func.extract(
-        "epoch", Flight.actual_departure - Flight.scheduled_departure
-    )
+    delay_expr = func.extract("epoch", Flight.actual_departure - Flight.scheduled_departure)
 
     stmt = select(Flight).where(
         or_(
@@ -202,9 +196,9 @@ def get_delayed_flights(
 def get_incidents_by_severity(
     session: Session,
     severity: str | Sequence[str],
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return incidents matching one or more severities."""
     if isinstance(severity, str):
@@ -216,8 +210,7 @@ def get_incidents_by_severity(
     for sev in severities:
         if sev not in ALLOWED_SEVERITIES:
             raise ValueError(
-                f"unsupported severity: {sev!r}. Allowed: "
-                f"{sorted(ALLOWED_SEVERITIES)}"
+                f"unsupported severity: {sev!r}. Allowed: {sorted(ALLOWED_SEVERITIES)}"
             )
         cleaned.append(sev)
     if not cleaned:
@@ -237,18 +230,15 @@ def get_incidents_by_severity(
 
     stmt = stmt.order_by(desc(Incident.incident_time)).limit(eff_limit)
 
-    return [
-        _serialise_incident(inc, fl)
-        for inc, fl in session.execute(stmt).all()
-    ]
+    return [_serialise_incident(inc, fl) for inc, fl in session.execute(stmt).all()]
 
 
 def get_flights_by_airport(
     session: Session,
     airport: str,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return flights with origin or destination matching ``airport``."""
     if not airport or not airport.strip():
@@ -256,9 +246,7 @@ def get_flights_by_airport(
     code = airport.strip().upper()
     eff_limit = _clamp_limit(limit)
 
-    stmt = select(Flight).where(
-        or_(Flight.origin == code, Flight.destination == code)
-    )
+    stmt = select(Flight).where(or_(Flight.origin == code, Flight.destination == code))
     if start_time is not None:
         stmt = stmt.where(Flight.scheduled_departure >= start_time)
     if end_time is not None:
@@ -272,7 +260,7 @@ def get_flights_by_airport(
 def get_logs_by_flight(
     session: Session,
     flight_id: int,
-    limit: Optional[int] = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return the most recent logs for a given flight."""
     try:
@@ -291,16 +279,14 @@ def get_logs_by_flight(
         .order_by(desc(FlightLog.log_time))
         .limit(eff_limit)
     )
-    return [
-        _serialise_log(log, fl) for log, fl in session.execute(stmt).all()
-    ]
+    return [_serialise_log(log, fl) for log, fl in session.execute(stmt).all()]
 
 
 def get_top_delay_airports(
     session: Session,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return airports most frequently associated with delayed flights.
 
@@ -312,9 +298,7 @@ def get_top_delay_airports(
     eff_limit = _clamp_limit(limit)
 
     delay_seconds = DELAY_MINUTES_THRESHOLD * 60
-    delay_expr = func.extract(
-        "epoch", Flight.actual_departure - Flight.scheduled_departure
-    )
+    delay_expr = func.extract("epoch", Flight.actual_departure - Flight.scheduled_departure)
 
     base = select(Flight).where(
         or_(

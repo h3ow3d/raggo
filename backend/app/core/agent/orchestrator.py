@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
@@ -71,7 +71,7 @@ def _run_sql_calls(
             logger.warning("Safe SQL tool %s unexpected error: %s", name, exc)
             errors.append(f"{name}: {exc}")
             continue
-        
+
         # Record the call in the trace
         trace_sql.append(
             {
@@ -88,12 +88,12 @@ def _run_vector(
     session: Session,
     domain: DomainPack,
     query_text: str,
-    resource_name: Optional[str],
+    resource_name: str | None,
     top_k: int,
-    filters: Optional[Dict[str, Any]],
+    filters: Dict[str, Any] | None,
     trace_vector: List[Dict[str, Any]],
     errors: List[str],
-    embedding_client: Optional[EmbeddingClient] = None,
+    embedding_client: EmbeddingClient | None = None,
 ) -> List[Dict[str, Any]]:
     """Run vector search and return evidence items."""
     # Pick the resource
@@ -111,7 +111,7 @@ def _run_vector(
         if resource is None:
             errors.append(f"Unknown resource: {resource_name}")
             return []
-    
+
     try:
         rows = vector_search(
             session=session,
@@ -127,7 +127,7 @@ def _run_vector(
     except VectorSearchDependencyError as exc:
         errors.append(f"vector_search dependency: {exc}")
         return []
-    
+
     trace_vector.append(
         {
             "resource": resource.name,
@@ -137,7 +137,7 @@ def _run_vector(
             "result_count": len(rows),
         }
     )
-    
+
     # Convert vector hits to evidence items
     # The metadata dict already contains the projected fields
     evidence = []
@@ -152,7 +152,7 @@ def _run_vector(
         if "similarity" not in item and hit.get("score") is not None:
             item["similarity"] = hit["score"]
         evidence.append(item)
-    
+
     return evidence
 
 
@@ -161,9 +161,9 @@ def run(
     *,
     domain: DomainPack,
     question: str,
-    top_k: Optional[int] = None,
-    embedding_client: Optional[EmbeddingClient] = None,
-    generation_client: Optional[GenerationClient] = None,
+    top_k: int | None = None,
+    embedding_client: EmbeddingClient | None = None,
+    generation_client: GenerationClient | None = None,
 ) -> AgentResult:
     """Run the agent end-to-end for a single user question.
 
@@ -196,11 +196,14 @@ def run(
     # per-domain conventions (e.g. a specific `vector_resource`) are honoured.
     domain_default = getattr(domain, "default_intent_plan", None)
     if domain_default is None:
-        domain_default = lambda q: IntentPlan(
-            strategy="vector_only",
-            vector_query=q,
-            notes="default: vector-only RAG",
-        )
+
+        def domain_default(q: str) -> IntentPlan:
+            return IntentPlan(
+                strategy="vector_only",
+                vector_query=q,
+                notes="default: vector-only RAG",
+            )
+
     classifier = RuleBasedIntentClassifier(
         rules=domain.intent_rules,
         default_plan=domain_default,
@@ -277,10 +280,7 @@ def run(
                     f"evidence only ({len(evidence)} item(s))."
                 )
             else:
-                answer = (
-                    "Generation model unavailable and no supporting "
-                    "evidence was retrieved."
-                )
+                answer = "Generation model unavailable and no supporting evidence was retrieved."
     finally:
         if owns_gen:
             gen.close()

@@ -7,15 +7,12 @@ models mirror that schema so the backend can read/write through SQLAlchemy.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    JSON,
     DateTime,
     ForeignKey,
     Integer,
-    String,
     Text,
     func,
 )
@@ -40,18 +37,18 @@ class Flight(Base):
     origin: Mapped[str] = mapped_column(Text, nullable=False)
     destination: Mapped[str] = mapped_column(Text, nullable=False)
     scheduled_departure: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    actual_departure: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    actual_departure: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scheduled_arrival: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    actual_arrival: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    actual_arrival: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    logs: Mapped[list["FlightLog"]] = relationship(
+    logs: Mapped[list[FlightLog]] = relationship(
         back_populates="flight", cascade="all, delete-orphan"
     )
-    incidents: Mapped[list["Incident"]] = relationship(
+    incidents: Mapped[list[Incident]] = relationship(
         back_populates="flight", cascade="all, delete-orphan"
     )
 
@@ -69,12 +66,12 @@ class FlightLog(Base):
     severity: Mapped[str] = mapped_column(Text, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     structured_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    embedding: Mapped[Optional[list[float]]] = mapped_column(
+    embedding: Mapped[list[float] | None] = mapped_column(
         Vector(get_settings().embedding_dim), nullable=True
     )
-    embedding_model: Mapped[Optional[str]] = mapped_column(Text)
-    embedding_dim: Mapped[Optional[int]] = mapped_column(Integer)
-    embedded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    embedding_model: Mapped[str | None] = mapped_column(Text)
+    embedding_dim: Mapped[int | None] = mapped_column(Integer)
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

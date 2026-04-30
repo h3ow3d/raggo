@@ -52,7 +52,7 @@ def run_tool(
     kwargs: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Execute a safe SQL tool and return (rows, evidence_items).
-    
+
     Parameters
     ----------
     session : Session
@@ -64,13 +64,13 @@ def run_tool(
     kwargs : dict
         Arguments to pass to the tool. Will be validated against the
         tool's args_model.
-    
+
     Returns
     -------
     (rows, evidence_items) : tuple[list[dict], list[dict]]
         rows: raw result dicts from the tool function
         evidence_items: evidence dicts built by tool.evidence_builder
-    
+
     Raises
     ------
     ValueError
@@ -79,26 +79,26 @@ def run_tool(
     tool = registry.get(name)
     if tool is None:
         raise ValueError(f"Unknown safe SQL tool: {name!r}. Available: {registry.names()}")
-    
+
     # Validate kwargs with the tool's Pydantic model
     try:
         validated = tool.args_model(**kwargs)
     except ValidationError as exc:
         raise ValueError(f"Invalid arguments for {name}: {exc}") from exc
-    
+
     # Clamp any 'limit' field to MAX_LIMIT
     validated_dict = validated.model_dump()
     if "limit" in validated_dict and validated_dict["limit"] is not None:
         validated_dict["limit"] = min(int(validated_dict["limit"]), MAX_LIMIT)
-    
+
     # Call the tool function
     try:
         rows = tool.func(session, **validated_dict)
     except Exception as exc:
         logger.warning("Safe SQL tool %s failed: %s", name, exc)
         raise ValueError(f"Tool {name} execution failed: {exc}") from exc
-    
+
     # Build evidence items
     evidence_items = [tool.evidence_builder(row) for row in rows]
-    
+
     return rows, evidence_items

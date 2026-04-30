@@ -31,13 +31,11 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
 import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
 
 LOG = logging.getLogger("generation-model")
 logging.basicConfig(
@@ -48,9 +46,7 @@ logging.basicConfig(
 
 MODEL_DIR = os.environ.get("GENERATION_MODEL_DIR", "/models/generation")
 METADATA_FILENAME = "rag_flight_lab_model.json"
-ENV_MODEL_NAME = os.environ.get(
-    "GENERATION_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct"
-)
+ENV_MODEL_NAME = os.environ.get("GENERATION_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct")
 
 # Defaults / caps for generation parameters. Caps bound CPU/memory work
 # per request even on the internal network.
@@ -60,21 +56,19 @@ DEFAULT_TEMPERATURE = float(os.environ.get("GEN_DEFAULT_TEMPERATURE", "0.2"))
 MAX_PROMPT_CHARS = int(os.environ.get("GEN_MAX_PROMPT_CHARS", "32000"))
 # Per-request wall-clock cap. Generation that exceeds this is cancelled
 # and the client receives a 504 with finish_reason="timeout".
-GENERATE_TIMEOUT_SECONDS = float(
-    os.environ.get("GEN_TIMEOUT_SECONDS", "120")
-)
+GENERATE_TIMEOUT_SECONDS = float(os.environ.get("GEN_TIMEOUT_SECONDS", "120"))
 # Bound concurrency so a stampede can't pin all CPU cores at once.
 MAX_CONCURRENCY = int(os.environ.get("GEN_MAX_CONCURRENCY", "1"))
 
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., description="Prompt to generate from.")
-    max_new_tokens: Optional[int] = Field(
+    max_new_tokens: int | None = Field(
         default=None,
         ge=1,
         description="Maximum number of new tokens to generate.",
     )
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None,
         ge=0.0,
         le=2.0,
@@ -98,10 +92,10 @@ _model_name: str = ENV_MODEL_NAME
 # running and continues to occupy a slot, so timed-out requests cannot
 # pile up additional concurrent generations. This is intentionally
 # stricter than a semaphore released on request exit.
-_executor: Optional[ThreadPoolExecutor] = None
+_executor: ThreadPoolExecutor | None = None
 
 
-def _load_baked_metadata() -> Optional[dict]:
+def _load_baked_metadata() -> dict | None:
     """Return build-time metadata written next to the weights, if present."""
     meta_path = Path(MODEL_DIR) / METADATA_FILENAME
     if not meta_path.is_file():
@@ -148,9 +142,7 @@ async def lifespan(app: FastAPI):
     LOG.info("Loading generation model from %s", MODEL_DIR)
     # `local_files_only=True` is belt-and-braces alongside the offline env
     # vars: even if those were unset, transformers would refuse to fetch.
-    _tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_DIR, local_files_only=True
-    )
+    _tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, local_files_only=True)
     # Use float32 on CPU for stability; if a GPU is available (GPU
     # override compose) prefer float16 and `device_map="auto"`.
     if torch.cuda.is_available():
@@ -210,9 +202,7 @@ def health() -> dict:
     }
 
 
-def _generate_sync(
-    prompt: str, max_new_tokens: int, temperature: float
-) -> tuple[str, str]:
+def _generate_sync(prompt: str, max_new_tokens: int, temperature: float) -> tuple[str, str]:
     """Run blocking generation. Returns (text, finish_reason)."""
     assert _tokenizer is not None and _model is not None
 
@@ -239,7 +229,7 @@ def _generate_sync(
         )
 
     # Strip the prompt tokens so we only return generated text.
-    new_tokens = output_ids[0, input_ids.shape[1]:]
+    new_tokens = output_ids[0, input_ids.shape[1] :]
     text = _tokenizer.decode(new_tokens, skip_special_tokens=True)
 
     finish_reason = "length" if new_tokens.shape[0] >= max_new_tokens else "stop"
@@ -264,15 +254,10 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
     if max_new_tokens > MAX_MAX_NEW_TOKENS:
         raise HTTPException(
             status_code=413,
-            detail=(
-                f"max_new_tokens too large: {max_new_tokens} > "
-                f"{MAX_MAX_NEW_TOKENS}"
-            ),
+            detail=(f"max_new_tokens too large: {max_new_tokens} > {MAX_MAX_NEW_TOKENS}"),
         )
 
-    temperature = (
-        req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE
-    )
+    temperature = req.temperature if req.temperature is not None else DEFAULT_TEMPERATURE
 
     # Apply a wall-clock timeout. The blocking `model.generate` runs on
     # the bounded `_executor` (max_workers=MAX_CONCURRENCY), so the event
@@ -294,7 +279,7 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
             ),
             timeout=GENERATE_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         LOG.warning(
             "generation timed out after %.1fs (max_new_tokens=%d)",
             GENERATE_TIMEOUT_SECONDS,
@@ -302,11 +287,8 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         )
         raise HTTPException(
             status_code=504,
-            detail=(
-                f"generation timed out after "
-                f"{GENERATE_TIMEOUT_SECONDS:.0f}s"
-            ),
-        )
+            detail=(f"generation timed out after {GENERATE_TIMEOUT_SECONDS:.0f}s"),
+        ) from None
 
     return GenerateResponse(
         text=text,

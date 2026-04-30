@@ -4,7 +4,7 @@
 // MUST NOT call the model services directly — only the backend talks to
 // `embedding-model` and `generation-model` on the internal `model_net`.
 
-const API_BASE = "/api";
+const API_BASE = '/api';
 
 export interface Stats {
   flights: number;
@@ -93,16 +93,16 @@ export interface IngestResponse {
 
 async function request<T>(
   path: string,
-  init: Omit<RequestInit, "body"> & { body?: unknown } = {}
+  init: Omit<RequestInit, 'body'> & { body?: unknown } = {}
 ): Promise<T> {
   const { body: rawBody, headers: rawHeaders, ...rest } = init;
   const headers = new Headers(rawHeaders);
   let body: BodyInit | undefined;
   if (rawBody !== undefined && rawBody !== null) {
-    if (typeof rawBody === "string" || rawBody instanceof FormData) {
+    if (typeof rawBody === 'string' || rawBody instanceof FormData) {
       body = rawBody as BodyInit;
     } else {
-      headers.set("Content-Type", "application/json");
+      headers.set('Content-Type', 'application/json');
       body = JSON.stringify(rawBody);
     }
   }
@@ -112,9 +112,7 @@ async function request<T>(
     try {
       const data = await resp.json();
       detail =
-        typeof data?.detail === "string"
-          ? data.detail
-          : JSON.stringify(data?.detail ?? data);
+        typeof data?.detail === 'string' ? data.detail : JSON.stringify(data?.detail ?? data);
     } catch {
       detail = await resp.text();
     }
@@ -127,29 +125,29 @@ async function request<T>(
 }
 
 export const api = {
-  health: () => request<Health>("/health"),
-  stats: () => request<Stats>("/stats"),
+  health: () => request<Health>('/health'),
+  stats: () => request<Stats>('/stats'),
   listFlights: (search?: string, limit = 25) => {
     const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    params.set("limit", String(limit));
+    if (search) params.set('search', search);
+    params.set('limit', String(limit));
     return request<{ results: FlightSummary[] }>(`/flights?${params}`);
   },
   createLog: (req: CreateLogRequest) =>
-    request<CreateLogResponse>("/logs", { method: "POST", body: req }),
+    request<CreateLogResponse>('/logs', { method: 'POST', body: req }),
   vectorSearch: (req: VectorSearchRequest) =>
-    request<VectorSearchResponse>("/search/vector", {
-      method: "POST",
+    request<VectorSearchResponse>('/search/vector', {
+      method: 'POST',
       body: req,
     }),
   query: (question: string, top_k?: number) =>
-    request<QueryResponse>("/query", {
-      method: "POST",
+    request<QueryResponse>('/query', {
+      method: 'POST',
       body: { question, top_k },
     }),
   ingest: (limit?: number) =>
-    request<IngestResponse>("/ingest", {
-      method: "POST",
+    request<IngestResponse>('/ingest', {
+      method: 'POST',
       body: limit !== undefined ? { limit } : {},
     }),
 };

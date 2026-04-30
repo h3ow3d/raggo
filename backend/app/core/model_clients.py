@@ -58,7 +58,7 @@ class EmbeddingClient:
         self._client = client
         self._owns_client = client is None
 
-    def __enter__(self) -> "EmbeddingClient":
+    def __enter__(self) -> EmbeddingClient:
         self._ensure_client()
         return self
 
@@ -101,9 +101,7 @@ class EmbeddingClient:
         try:
             resp = client.post(f"{self._base_url}/embed", json={"texts": list(texts)})
         except httpx.HTTPError as exc:
-            raise EmbeddingServiceError(
-                f"embedding service request failed: {exc}"
-            ) from exc
+            raise EmbeddingServiceError(f"embedding service request failed: {exc}") from exc
 
         if resp.status_code >= 400:
             raise EmbeddingServiceError(
@@ -113,9 +111,7 @@ class EmbeddingClient:
         try:
             payload = resp.json()
         except ValueError as exc:
-            raise EmbeddingServiceError(
-                f"embedding service returned non-JSON body: {exc}"
-            ) from exc
+            raise EmbeddingServiceError(f"embedding service returned non-JSON body: {exc}") from exc
 
         embeddings = payload.get("embeddings")
         model = payload.get("model")
@@ -125,9 +121,7 @@ class EmbeddingClient:
             or not isinstance(model, str)
             or not isinstance(dim, int)
         ):
-            raise EmbeddingServiceError(
-                "embedding service returned an unexpected payload shape"
-            )
+            raise EmbeddingServiceError("embedding service returned an unexpected payload shape")
 
         if len(embeddings) != len(texts):
             raise EmbeddingServiceError(
@@ -136,9 +130,7 @@ class EmbeddingClient:
 
         return EmbeddingResult(embeddings=embeddings, model=model, dim=dim)
 
-    def embed_batched(
-        self, texts: Sequence[str], batch_size: int | None = None
-    ) -> EmbeddingResult:
+    def embed_batched(self, texts: Sequence[str], batch_size: int | None = None) -> EmbeddingResult:
         """Embed `texts` by splitting into chunks of `batch_size`.
 
         Returns a single :class:`EmbeddingResult` whose `model`/`dim` come
@@ -208,13 +200,11 @@ class GenerationClient:
     ) -> None:
         settings = get_settings()
         self._base_url = (base_url or settings.generation_service_url).rstrip("/")
-        self._timeout = (
-            timeout if timeout is not None else settings.generation_request_timeout
-        )
+        self._timeout = timeout if timeout is not None else settings.generation_request_timeout
         self._client = client
         self._owns_client = client is None
 
-    def __enter__(self) -> "GenerationClient":
+    def __enter__(self) -> GenerationClient:
         self._ensure_client()
         return self
 
@@ -258,9 +248,7 @@ class GenerationClient:
         try:
             resp = client.post(f"{self._base_url}/generate", json=body)
         except httpx.HTTPError as exc:
-            raise GenerationServiceError(
-                f"generation service request failed: {exc}"
-            ) from exc
+            raise GenerationServiceError(f"generation service request failed: {exc}") from exc
 
         if resp.status_code >= 400:
             raise GenerationServiceError(
@@ -282,8 +270,6 @@ class GenerationClient:
             or not isinstance(model, str)
             or not isinstance(finish_reason, str)
         ):
-            raise GenerationServiceError(
-                "generation service returned an unexpected payload shape"
-            )
+            raise GenerationServiceError("generation service returned an unexpected payload shape")
 
         return GenerationResult(text=text, model=model, finish_reason=finish_reason)

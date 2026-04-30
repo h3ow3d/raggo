@@ -27,7 +27,6 @@ from app.domains.flights import intent_rules, prompts, sql_tools
 from app.domains.flights.models import Base, Flight, FlightLog, Incident
 from app.domains.flights.seed import has_existing_data, seed_database
 
-
 # ---------------------------------------------------------------------------
 # Embeddable resources
 # ---------------------------------------------------------------------------
@@ -68,9 +67,7 @@ FLIGHT_LOGS_RESOURCE = EmbeddableResource(
         }
     ),
     evidence_projection=_flight_log_evidence_projection,
-    joins=(
-        (Flight, lambda log_cls, flight_cls: flight_cls.id == log_cls.flight_id),
-    ),
+    joins=((Flight, lambda log_cls, flight_cls: flight_cls.id == log_cls.flight_id),),
 )
 
 
@@ -86,13 +83,11 @@ def stats(session: Session) -> Dict[str, Any]:
     incidents_count = session.scalar(select(func.count()).select_from(Incident)) or 0
     embedded_count = (
         session.scalar(
-            select(func.count())
-            .select_from(FlightLog)
-            .where(FlightLog.embedding.is_not(None))
+            select(func.count()).select_from(FlightLog).where(FlightLog.embedding.is_not(None))
         )
         or 0
     )
-    
+
     return {
         "flights": flights_count,
         "flight_logs": logs_count,

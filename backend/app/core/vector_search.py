@@ -11,7 +11,7 @@ metadata projected by the resource's evidence_projection callable.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect as sa_inspect
@@ -42,7 +42,7 @@ class VectorSearchDependencyError(RuntimeError):
     """
 
 
-def _build_filter_clauses(resource: EmbeddableResource, filters: Optional[Dict[str, Any]]):
+def _build_filter_clauses(resource: EmbeddableResource, filters: Dict[str, Any] | None):
     """Translate the filter dict into SQLAlchemy WHERE clauses."""
     clauses = []
     if not filters:
@@ -72,14 +72,14 @@ def search(
     resource: EmbeddableResource,
     query_text: str,
     top_k: int = 10,
-    filters: Optional[Dict[str, Any]] = None,
-    client: Optional[EmbeddingClient] = None,
+    filters: Dict[str, Any] | None = None,
+    client: EmbeddingClient | None = None,
 ) -> List[Dict[str, Any]]:
     """Return the `top_k` most similar embedded items for `query_text`.
 
     Each result is a dict with: {id, score, distance, text, metadata}.
     The metadata dict is built by the resource's evidence_projection callable.
-    
+
     Parameters
     ----------
     session : Session
@@ -94,7 +94,7 @@ def search(
         Structured filters validated against resource.filter_spec.
     client : EmbeddingClient, optional
         Injected for tests; created lazily otherwise.
-    
+
     Returns
     -------
     list[dict]
@@ -115,9 +115,7 @@ def search(
         try:
             embed_result = embedding_client.embed([query_text])
         except EmbeddingServiceError as exc:
-            raise VectorSearchDependencyError(
-                f"failed to embed query: {exc}"
-            ) from exc
+            raise VectorSearchDependencyError(f"failed to embed query: {exc}") from exc
     finally:
         if owns_client:
             embedding_client.close()
@@ -134,15 +132,13 @@ def search(
     embedding_col = getattr(resource.model, resource.embedding_column, None)
     if embedding_col is None:
         raise VectorSearchError(
-            f"embedding column {resource.embedding_column!r} not found on "
-            f"{resource.model.__name__}"
+            f"embedding column {resource.embedding_column!r} not found on {resource.model.__name__}"
         )
-    
+
     text_col = getattr(resource.model, resource.text_column, None)
     if text_col is None:
         raise VectorSearchError(
-            f"text column {resource.text_column!r} not found on "
-            f"{resource.model.__name__}"
+            f"text column {resource.text_column!r} not found on {resource.model.__name__}"
         )
 
     # Cosine distance via pgvector's `<=>` operator (registered on the
@@ -150,13 +146,10 @@ def search(
     distance = embedding_col.cosine_distance(query_vector).label("distance")
 
     # Start with the resource's model and the distance
-    stmt = (
-        select(
-            resource.model,
-            distance,
-        )
-        .where(embedding_col.is_not(None))
-    )
+    stmt = select(
+        resource.model,
+        distance,
+    ).where(embedding_col.is_not(None))
 
     # Apply joins if the resource specifies any. Joins are used to
     # filter/order rows; to avoid an N+1 lazy-load when
@@ -174,9 +167,7 @@ def search(
             mapper = sa_inspect(resource.model)
             for rel in mapper.relationships:
                 if rel.mapper.class_ in joined_models:
-                    stmt = stmt.options(
-                        selectinload(getattr(resource.model, rel.key))
-                    )
+                    stmt = stmt.options(selectinload(getattr(resource.model, rel.key)))
         except Exception:  # pragma: no cover - defensive: fall back to lazy load
             logger.debug(
                 "Could not configure eager loading for %s; "
@@ -199,16 +190,16 @@ def search(
         item = row[0]
         dist = float(row.distance) if row.distance is not None else None
         similarity = (1.0 - dist) if dist is not None else None
-        
+
         # Use evidence_projection to build metadata
         # For joins, we need to pass the joined instances too
         # The evidence_projection should handle the ORM object properly
         metadata = resource.evidence_projection(item)
-        
+
         # Get the ID and text
         item_id = getattr(item, "id", None)
         text = getattr(item, resource.text_column, "")
-        
+
         results.append(
             {
                 "id": item_id,

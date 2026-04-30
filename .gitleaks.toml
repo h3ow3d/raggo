@@ -1,0 +1,40 @@
+# gitleaks configuration for raggo.
+#
+# Phase 0 uses gitleaks' default ruleset extended with project-specific
+# allowlists. The repository ships only example/dev secrets in
+# `.env.example` and inside Docker Compose default values; those are
+# intentionally not real credentials.
+
+[extend]
+# Inherit gitleaks' bundled rules.
+useDefault = true
+
+[allowlist]
+description = "Allowlist for known-safe development placeholders"
+
+# Files that may contain example credentials.
+paths = [
+  '''^\.env\.example$''',
+  '''^docker-compose\.ya?ml$''',
+  '''^docker-compose\.gpu\.ya?ml$''',
+  '''^README\.md$''',
+  '''^PROJECT_SPEC\.md$''',
+  '''^AGENTS\.md$''',
+  '''^PHASE_[0-9]+_[A-Z_]+\.md$''',
+]
+
+# Strings that look like secrets but are documented placeholders.
+regexes = [
+  '''rag_dev_password''',
+  '''POSTGRES_PASSWORD\s*[:=]\s*["']?rag_dev_password["']?''',
+  '''sentence-transformers/all-MiniLM-L6-v2''',
+  '''Qwen/Qwen2\.5-0\.5B-Instruct''',
+]
+
+# Stop-words that indicate a placeholder rather than a real secret.
+stopwords = [
+  "example",
+  "placeholder",
+  "changeme",
+  "dev_password",
+]

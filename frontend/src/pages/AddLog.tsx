@@ -1,21 +1,21 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, CreateLogResponse, FlightSummary } from "../api";
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { api, CreateLogResponse, FlightSummary } from '../api';
 
-const LOG_TYPES = ["maintenance", "operational", "weather", "safety", "delay", "other"];
-const SOURCE_SYSTEMS = ["ACARS", "MEL", "CrewReport", "OPS", "ATC", "Maint"];
-const SEVERITIES = ["info", "warning", "critical"];
+const LOG_TYPES = ['maintenance', 'operational', 'weather', 'safety', 'delay', 'other'];
+const SOURCE_SYSTEMS = ['ACARS', 'MEL', 'CrewReport', 'OPS', 'ATC', 'Maint'];
+const SEVERITIES = ['info', 'warning', 'critical'];
 
 export default function AddLog() {
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [flights, setFlights] = useState<FlightSummary[]>([]);
-  const [flightId, setFlightId] = useState<number | "">("");
+  const [flightId, setFlightId] = useState<number | ''>('');
 
   const [logType, setLogType] = useState(LOG_TYPES[0]);
   const [sourceSystem, setSourceSystem] = useState(SOURCE_SYSTEMS[0]);
-  const [severity, setSeverity] = useState("info");
-  const [message, setMessage] = useState("");
-  const [metadataText, setMetadataText] = useState("{}");
+  const [severity, setSeverity] = useState('info');
+  const [message, setMessage] = useState('');
+  const [metadataText, setMetadataText] = useState('{}');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +48,12 @@ export default function AddLog() {
     if (!metadataText.trim()) return null;
     try {
       const parsed = JSON.parse(metadataText);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return "Metadata must be a JSON object.";
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return 'Metadata must be a JSON object.';
       }
       return null;
     } catch {
-      return "Metadata is not valid JSON.";
+      return 'Metadata is not valid JSON.';
     }
   }, [metadataText]);
 
@@ -61,8 +61,8 @@ export default function AddLog() {
     e.preventDefault();
     setError(null);
     setCreated(null);
-    if (flightId === "") {
-      setError("Choose a flight first.");
+    if (flightId === '') {
+      setError('Choose a flight first.');
       return;
     }
     if (metadataError) {
@@ -81,8 +81,8 @@ export default function AddLog() {
         metadata,
       });
       setCreated(result);
-      setMessage("");
-      setMetadataText("{}");
+      setMessage('');
+      setMetadataText('{}');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -103,15 +103,13 @@ export default function AddLog() {
         />
         <label style={{ marginTop: 8 }}>Flight</label>
         <select
-          value={flightId === "" ? "" : String(flightId)}
-          onChange={(e) =>
-            setFlightId(e.target.value === "" ? "" : Number(e.target.value))
-          }
+          value={flightId === '' ? '' : String(flightId)}
+          onChange={(e) => setFlightId(e.target.value === '' ? '' : Number(e.target.value))}
         >
           <option value="">— select a flight —</option>
           {flights.map((f) => (
             <option key={f.id} value={f.id}>
-              #{f.id} · {f.flight_number} · {f.origin} → {f.destination} ·{" "}
+              #{f.id} · {f.flight_number} · {f.origin} → {f.destination} ·{' '}
               {new Date(f.scheduled_departure).toLocaleString()}
             </option>
           ))}
@@ -130,10 +128,7 @@ export default function AddLog() {
           </div>
           <div>
             <label>Source system</label>
-            <select
-              value={sourceSystem}
-              onChange={(e) => setSourceSystem(e.target.value)}
-            >
+            <select value={sourceSystem} onChange={(e) => setSourceSystem(e.target.value)}>
               {SOURCE_SYSTEMS.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -163,18 +158,14 @@ export default function AddLog() {
         />
 
         <label>Metadata (JSON object)</label>
-        <textarea
-          rows={4}
-          value={metadataText}
-          onChange={(e) => setMetadataText(e.target.value)}
-        />
+        <textarea rows={4} value={metadataText} onChange={(e) => setMetadataText(e.target.value)} />
         {metadataError && <div className="error">{metadataError}</div>}
 
         {error && <div className="error">{error}</div>}
 
         <div style={{ marginTop: 12 }}>
-          <button type="submit" disabled={submitting || flightId === ""}>
-            {submitting ? "Submitting…" : "Create log"}
+          <button type="submit" disabled={submitting || flightId === ''}>
+            {submitting ? 'Submitting…' : 'Create log'}
           </button>
         </div>
       </form>
@@ -183,20 +174,18 @@ export default function AddLog() {
         <div className="card">
           <h2 style={{ marginTop: 0 }}>Created</h2>
           <div className="muted">
-            Log #{created.id} on flight #{created.flight_id} ·{" "}
-            <span className={`severity-${created.severity}`}>
-              {created.severity}
-            </span>
+            Log #{created.id} on flight #{created.flight_id} ·{' '}
+            <span className={`severity-${created.severity}`}>{created.severity}</span>
           </div>
           <div className="result-message" style={{ marginTop: 6 }}>
             {created.message}
           </div>
           <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
             {created.embedded
-              ? "Embedding generated and stored."
+              ? 'Embedding generated and stored.'
               : created.embedding_error
                 ? `Embedding deferred (${created.embedding_error}). The next ingestion pass will retry.`
-                : "Embedding deferred. The next ingestion pass will retry."}
+                : 'Embedding deferred. The next ingestion pass will retry.'}
           </div>
         </div>
       )}

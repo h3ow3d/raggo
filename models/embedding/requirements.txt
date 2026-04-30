@@ -18,4 +18,3 @@ pydantic==2.9.2
 sentence-transformers==3.4.1
 transformers==4.48.3
 huggingface-hub==0.27.1
-

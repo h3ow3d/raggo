@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
@@ -25,12 +24,12 @@ class SupportTicket(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)  # open, in_progress, resolved, closed
     customer: Mapped[str] = mapped_column(Text, nullable=False)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    messages: Mapped[list["TicketMessage"]] = relationship(
+    messages: Mapped[list[TicketMessage]] = relationship(
         back_populates="ticket", cascade="all, delete-orphan"
     )
 
@@ -44,12 +43,12 @@ class TicketMessage(Base):
     )
     author: Mapped[str] = mapped_column(Text, nullable=False)  # customer, agent, system
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[Optional[list[float]]] = mapped_column(
+    embedding: Mapped[list[float] | None] = mapped_column(
         Vector(get_settings().embedding_dim), nullable=True
     )
-    embedding_model: Mapped[Optional[str]] = mapped_column(Text)
-    embedding_dim: Mapped[Optional[int]] = mapped_column(Integer)
-    embedded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    embedding_model: Mapped[str | None] = mapped_column(Text)
+    embedding_dim: Mapped[int | None] = mapped_column(Integer)
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

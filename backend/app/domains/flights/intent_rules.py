@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Tuple
 
 from app.core.agent.intent import IntentPlan
 from app.core.domain import IntentRule
-
 
 # Compiled keyword groups. Kept simple on purpose so the routing remains
 # predictable; the LLM is never asked to pick a tool.
 _DELAY_RE = re.compile(r"\bdelay(s|ed|ing)?\b", re.IGNORECASE)
 _SAFETY_RE = re.compile(r"\bsafety\b|\bsafety issue|\bincident", re.IGNORECASE)
-_SEVERE_RE = re.compile(
-    r"\bsevere|\bcritical|\bserious|\bmajor\b", re.IGNORECASE
-)
+_SEVERE_RE = re.compile(r"\bsevere|\bcritical|\bserious|\bmajor\b", re.IGNORECASE)
 _AIRPORT_LIST_RE = re.compile(
     r"\bwhich airport|airports? (are )?most|airports? .* delays?",
     re.IGNORECASE,
@@ -27,7 +24,7 @@ _RECENT_RE = re.compile(
 )
 
 
-def _recent_window(question: str) -> Tuple[Optional[datetime], Optional[datetime]]:
+def _recent_window(question: str) -> Tuple[datetime | None, datetime | None]:
     """Return a ``(start, end)`` window when the question is time-scoped.
 
     Recognises "this week", "recent(ly)", and "last N day(s)/week(s)".
@@ -37,11 +34,9 @@ def _recent_window(question: str) -> Tuple[Optional[datetime], Optional[datetime
     if not _RECENT_RE.search(question):
         return None, None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # "last N day(s)/week(s)"
-    m = re.search(
-        r"last\s+(\d+)?\s*(day|days|week|weeks)", question, re.IGNORECASE
-    )
+    m = re.search(r"last\s+(\d+)?\s*(day|days|week|weeks)", question, re.IGNORECASE)
     if m:
         n = int(m.group(1) or 1)
         unit = m.group(2).lower()
@@ -77,9 +72,10 @@ def _airport_delay_aggregation_plan(question: str) -> IntentPlan:
 
 
 def _severe_incident_matches(question: str) -> bool:
-    return bool(_SEVERE_RE.search(question) and (
-        _SAFETY_RE.search(question) or "incident" in question.lower()
-    ))
+    return bool(
+        _SEVERE_RE.search(question)
+        and (_SAFETY_RE.search(question) or "incident" in question.lower())
+    )
 
 
 def _severe_incident_plan(question: str) -> IntentPlan:
@@ -159,7 +155,7 @@ INTENT_RULES: Tuple[IntentRule, ...] = (
 
 def default_plan(question: str) -> IntentPlan:
     """Default plan for questions that don't match any specific rule.
-    
+
     Vector-only RAG over flight_logs.
     """
     return IntentPlan(

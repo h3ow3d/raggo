@@ -48,18 +48,12 @@ class Settings(BaseSettings):
     )
     # Number of logs sent to the embedding service per HTTP call. Must stay
     # at or below the embedding service's MAX_BATCH (default 128).
-    ingest_batch_size: int = Field(
-        default=128, ge=1, le=128, alias="INGEST_BATCH_SIZE"
-    )
+    ingest_batch_size: int = Field(default=128, ge=1, le=128, alias="INGEST_BATCH_SIZE")
     # Cap on how many logs the startup ingestion task will embed before
     # yielding. Keeps API/UI responsive on first boot with 50k seed logs.
-    startup_ingest_limit: int = Field(
-        default=2000, ge=0, alias="STARTUP_INGEST_LIMIT"
-    )
+    startup_ingest_limit: int = Field(default=2000, ge=0, alias="STARTUP_INGEST_LIMIT")
     # Per-request HTTP timeout for embedding calls (seconds).
-    embedding_request_timeout: float = Field(
-        default=60.0, gt=0, alias="EMBEDDING_REQUEST_TIMEOUT"
-    )
+    embedding_request_timeout: float = Field(default=60.0, gt=0, alias="EMBEDDING_REQUEST_TIMEOUT")
 
     # --- Generation / agent ----------------------------------------------
     # URL of the internal generation model service (only reachable from
@@ -77,15 +71,9 @@ class Settings(BaseSettings):
     )
     # Caps on agent retrieval. Bounds evidence size sent to the LLM and
     # the work done per query.
-    agent_max_vector_results: int = Field(
-        default=8, ge=1, le=50, alias="AGENT_MAX_VECTOR_RESULTS"
-    )
-    agent_max_sql_results: int = Field(
-        default=10, ge=1, le=50, alias="AGENT_MAX_SQL_RESULTS"
-    )
-    agent_max_new_tokens: int = Field(
-        default=256, ge=16, le=1024, alias="AGENT_MAX_NEW_TOKENS"
-    )
+    agent_max_vector_results: int = Field(default=8, ge=1, le=50, alias="AGENT_MAX_VECTOR_RESULTS")
+    agent_max_sql_results: int = Field(default=10, ge=1, le=50, alias="AGENT_MAX_SQL_RESULTS")
+    agent_max_new_tokens: int = Field(default=256, ge=16, le=1024, alias="AGENT_MAX_NEW_TOKENS")
     generation_model_name: str = Field(
         default="Qwen/Qwen2.5-0.5B-Instruct",
         alias="GENERATION_MODEL_NAME",
