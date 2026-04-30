@@ -1,0 +1,31 @@
+# raggo CODEOWNERS — Phase 2.
+#
+# GitHub looks for CODEOWNERS in `.github/`, the repository root, and
+# `docs/`, in that order, and uses the first one it finds. This file
+# lives in `.github/` so it takes precedence over the older root-level
+# `CODEOWNERS` and is the single source of truth for review routing.
+#
+# Branch protection on the default branch requires CODEOWNERS review
+# for the paths called out in `docs/branch-protection.md` (Phase 2 /
+# Phase 3 / Phase 7 prep). Order matters: the LAST matching pattern
+# wins, so the catch-all at the top is overridden by more specific
+# rules below.
+
+# ---- Default fallback ------------------------------------------------------
+*                              @h3ow3d
+
+# ---- Helm chart (Phase 4) --------------------------------------------------
+/helm/                         @h3ow3d
+
+# ---- Air-gap bundle (Phase 5) ---------------------------------------------
+# The phase plan refers to this directory as `bundle/`; the in-tree
+# implementation lives at `airgap-bundle/`. Both paths are covered so
+# that a future rename does not silently lose the CODEOWNERS rule.
+/bundle/                       @h3ow3d
+/airgap-bundle/                @h3ow3d
+
+# ---- CI/CD workflows -------------------------------------------------------
+/.github/workflows/            @h3ow3d
+
+# ---- Domain packs (Phase 3 / Phase 7 prep) --------------------------------
+/backend/app/domains/          @h3ow3d

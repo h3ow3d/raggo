@@ -91,3 +91,52 @@ disable_error_code = [
 [[tool.mypy.overrides]]
 module = ["app.*"]
 ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Pytest + coverage configuration. CI (`.github/workflows/ci.yml`)
+# runs `pytest --cov=backend/app` and then enforces coverage on
+# changed files via `diff-cover`.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["backend"]
+# Make `from app.X import …` work without an installed package by
+# pointing pytest at `backend/` as a rootpath. Individual test
+# modules can still override via their own conftest.
+pythonpath = ["backend"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["backend/app"]
+omit = [
+  "backend/app/__init__.py",
+  "backend/app/**/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Phase 2 sets a conservative whole-codebase floor. The per-PR
+# enforcement (changed-files coverage) is handled by `diff-cover`
+# below — that is the gate the spec calls out.
+fail_under = 0
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == [\"']__main__[\"']:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.diff_cover]
+# `diff-cover` reads its configuration from the `[tool.diff_cover]`
+# table when given `--config-file pyproject.toml`. The CI step also
+# sets `--compare-branch` dynamically from the PR base ref.
+#
+# Threshold for coverage on lines changed by a PR. Phase 2 starts at
+# 80% — high enough to make new code carry tests, low enough to allow
+# small refactors and config tweaks through. Tighten in later phases
+# once the test suite has matured.
+fail_under = 80
+include = ["backend/app/**"]
+diff_range_notation = ".."
