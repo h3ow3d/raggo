@@ -44,6 +44,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      embedding-model:
+        condition: service_healthy
+      generation-model:
+        condition: service_healthy
     environment:
       RAGGO_DOMAIN: ${RAGGO_DOMAIN:-flights}
       POSTGRES_HOST: postgres
@@ -116,6 +120,27 @@ services:
     # the backend at http://embedding-model:8000 over `model_net`.
     networks:
       - model_net
+    # Probe the FastAPI lifespan-loaded model. Because the app loads the
+    # SentenceTransformer during startup (inside the lifespan), uvicorn
+    # will refuse connections until startup completes; once it is serving
+    # requests, `/health` returns status="ok". Until then, the container
+    # reports unhealthy and the backend's depends_on (service_healthy)
+    # blocks startup ingestion, avoiding the "Connection refused" race.
+    # `start_period` is generous because cold-loading on CPU can take a
+    # while on first boot. The image has no curl/wget; use python stdlib.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json, sys, urllib.request
+          with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5) as r:
+              sys.exit(0 if json.load(r).get("status") == "ok" else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
     # Container hardening. The image is fully self-contained (weights baked
     # in), so the filesystem can be read-only with a small tmpfs for any
     # transient scratch needs.
@@ -150,6 +175,25 @@ services:
     # the backend at http://generation-model:8000 over `model_net`.
     networks:
       - model_net
+    # Probe the FastAPI service after its lifespan startup completes.
+    # The HF causal LM is loaded during startup (inside the lifespan),
+    # so uvicorn will refuse connections on `/health` until loading
+    # finishes; once reachable, `/health` reports status="ok". CPU
+    # loading of even a 0.5B model can take 30-90s on first boot, so
+    # `start_period` is intentionally generous.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import json, sys, urllib.request
+          with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5) as r:
+              sys.exit(0 if json.load(r).get("status") == "ok" else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 300s
     # Container hardening. The image is fully self-contained (weights
     # baked in), so the filesystem can be read-only with a small tmpfs
     # for any transient scratch needs (HF caches, tokenizer scratch).
