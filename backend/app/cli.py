@@ -28,9 +28,10 @@ import argparse
 import logging
 import sys
 import time
+from pathlib import Path
 from typing import Sequence
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import get_settings
@@ -71,14 +72,11 @@ def _run_domain_init_sql(domain: DomainPack) -> None:
     This mirrors the lifespan-time logic in `app.main` so the hook stays
     a no-op when re-applied to an already-initialised database.
     """
-    from pathlib import Path
-
     if not domain.embeddable_resources:
         logger.info("Domain has no embeddable resources; skipping init.sql.")
         return
 
     table_name = domain.embeddable_resources[0].model.__tablename__
-    from sqlalchemy import inspect
 
     if table_name in inspect(engine).get_table_names():
         logger.info("Domain table %r already exists; skipping init.sql.", table_name)
