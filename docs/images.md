@@ -11,22 +11,24 @@ and `PROJECT_SPEC.md` §21.2 / §21.3.
 
 ## Image inventory
 
-| Image                                           | Built from           | Default architectures              |
-| ----------------------------------------------- | -------------------- | ---------------------------------- |
-| `ghcr.io/h3ow3d/raggo/backend`                  | `backend/Dockerfile` | `linux/amd64`, `linux/arm64`       |
-| `ghcr.io/h3ow3d/raggo/frontend`                 | `frontend/Dockerfile`| `linux/amd64`, `linux/arm64`       |
-| `ghcr.io/h3ow3d/raggo/postgres-pgvector`        | `db/Dockerfile`      | `linux/amd64`, `linux/arm64`       |
-| `ghcr.io/h3ow3d/raggo/embedding-model`          | `models/embedding/Dockerfile` | `linux/amd64` (arm64 best-effort) |
-| `ghcr.io/h3ow3d/raggo/generation-model`         | `models/generation/Dockerfile`| `linux/amd64` (arm64 best-effort) |
+| Image                                           | Built from           | Default architectures                                                                       |
+| ----------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------- |
+| `ghcr.io/h3ow3d/raggo/backend`                  | `backend/Dockerfile` | `linux/amd64`, `linux/arm64`                                                                |
+| `ghcr.io/h3ow3d/raggo/frontend`                 | `frontend/Dockerfile`| `linux/amd64`, `linux/arm64`                                                                |
+| `ghcr.io/h3ow3d/raggo/postgres-pgvector`        | `db/Dockerfile`      | `linux/amd64`, `linux/arm64`                                                                |
+| `ghcr.io/h3ow3d/raggo/embedding-model`          | `models/embedding/Dockerfile` | `linux/amd64` by default; optional `linux/arm64` best-effort when `model_archs` includes it |
+| `ghcr.io/h3ow3d/raggo/generation-model`         | `models/generation/Dockerfile`| `linux/amd64` by default; optional `linux/arm64` best-effort when `model_archs` includes it |
 
 All packages are **public**: pulling does not require `docker login`
 and installs do not require an image pull secret.
 
-Model images are published amd64-only by default. arm64 builds for
+Model images are published amd64-only by default (the workflow's
+`model_archs` input defaults to `linux/amd64`). arm64 builds for
 those services are best-effort because the upstream model assets and
 torch wheels are not always arm64-clean; if you need arm64 model
-images you must either supply arm64-compatible wheels or run the
-model services on amd64 nodes.
+images, invoke `build-images.yml` with `model_archs:
+linux/amd64,linux/arm64` and supply arm64-compatible wheels, or run
+the model services on amd64 nodes.
 
 ## Tagging scheme
 

@@ -36,6 +36,11 @@ permissions:
 
 jobs:
   build:
+    # Skip PRs from forks: GITHUB_TOKEN cannot write packages from a
+    # fork-originated workflow run, and pushing images built from
+    # untrusted code is unsafe. Maintainers can rebase a fork PR onto a
+    # branch in this repository to get a preview build.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     uses: ./.github/workflows/build-images.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}

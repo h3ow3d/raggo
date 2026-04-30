@@ -391,8 +391,10 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           build-args: ${{ matrix.build_args }}
-          provenance: true
-          sbom: true
+          # buildkit-attached attestations (provenance + SBOM) are only
+          # generated on signed builds. PR previews stay clean.
+          provenance: ${{ inputs.sign }}
+          sbom: ${{ inputs.sign }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
           labels: |
@@ -463,7 +465,10 @@ jobs:
   mark-public:
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ inputs.pr_number == '' }}
+    # Always run, including on PR builds: a fresh registry creates
+    # private packages on first push, and PR previews must be pullable
+    # by reviewers without auth. Fork PRs are blocked at the
+    # `pr-images.yml` level, so this only runs for trusted refs.
     strategy:
       matrix:
         package:
