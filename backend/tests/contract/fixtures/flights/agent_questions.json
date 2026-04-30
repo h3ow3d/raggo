@@ -1,0 +1,19 @@
+{
+  "agent_questions": [
+    {
+      "question": "Were there any critical safety incidents this week?",
+      "expected_strategies": ["vector_and_sql", "sql_only"],
+      "expected_tools_any": ["get_incidents_by_severity"]
+    },
+    {
+      "question": "Which airports are most associated with delays?",
+      "expected_strategies": ["sql_only"],
+      "expected_tools_any": ["get_top_delay_airports"]
+    },
+    {
+      "question": "Why are flights delayed lately?",
+      "expected_strategies": ["vector_and_sql"],
+      "expected_tools_any": ["get_delayed_flights"]
+    }
+  ]
+}

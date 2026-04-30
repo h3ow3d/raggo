@@ -1,0 +1,19 @@
+{
+  "agent_questions": [
+    {
+      "question": "Show me open tickets from this week.",
+      "expected_strategies": ["sql_only"],
+      "expected_tools_any": ["get_open_tickets"]
+    },
+    {
+      "question": "Any critical urgent tickets we should escalate?",
+      "expected_strategies": ["vector_and_sql"],
+      "expected_tools_any": ["get_tickets_by_priority"]
+    },
+    {
+      "question": "I was charged twice on my last invoice.",
+      "expected_strategies": ["vector_only"],
+      "expected_tools_any": []
+    }
+  ]
+}
