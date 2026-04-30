@@ -32,8 +32,6 @@ from app.core.safe_sql import SafeSqlRegistry, run_tool
 from app.core.vector_search import (
     VectorSearchDependencyError,
     VectorSearchError,
-)
-from app.core.vector_search import (
     search as vector_search,
 )
 

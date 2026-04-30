@@ -26,7 +26,7 @@ paths = [
 # Strings that look like secrets but are documented placeholders.
 regexes = [
   '''rag_dev_password''',
-  '''POSTGRES_PASSWORD\s*[:=]''',
+  '''POSTGRES_PASSWORD\s*[:=]\s*["']?rag_dev_password["']?''',
   '''sentence-transformers/all-MiniLM-L6-v2''',
   '''Qwen/Qwen2\.5-0\.5B-Instruct''',
 ]
