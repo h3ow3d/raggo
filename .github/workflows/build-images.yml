@@ -180,7 +180,7 @@ jobs:
       generation_tag_suffix: ${{ steps.meta.outputs.generation_tag_suffix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Compute tag set
         id: meta
@@ -301,7 +301,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve archs for this image
         id: archs
@@ -479,7 +479,7 @@ jobs:
           - generation-model
     steps:
       - name: Set package visibility to public
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

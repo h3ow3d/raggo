@@ -49,7 +49,7 @@ jobs:
           - generation-model
     steps:
       - name: Prune stale ephemeral tags for ${{ matrix.package }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '30' }}
