@@ -1,0 +1,21 @@
+# Node build artefacts and caches — re-installed inside the build stage
+node_modules/
+dist/
+.vite/
+coverage/
+.eslintcache
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# VCS / editor / OS
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# Documentation that does not need to be in the image
+*.md

@@ -428,6 +428,34 @@ docker compose exec backend pytest
 
 MIT (or choose your own)
 
+## Container images
+
+raggo images are published publicly to GitHub Container Registry under
+`ghcr.io/h3ow3d/raggo/`. No `docker login` is required to pull, and no
+image pull secret is required to install.
+
+```bash
+docker pull ghcr.io/h3ow3d/raggo/backend@sha256:<digest>
+docker pull ghcr.io/h3ow3d/raggo/frontend@sha256:<digest>
+docker pull ghcr.io/h3ow3d/raggo/postgres-pgvector@sha256:<digest>
+docker pull ghcr.io/h3ow3d/raggo/embedding-model@sha256:<digest>
+docker pull ghcr.io/h3ow3d/raggo/generation-model@sha256:<digest>
+```
+
+Release images are signed with cosign using a long-lived key pair. The
+public key is committed at [`.github/cosign.pub`](.github/cosign.pub).
+Verify any release image directly against the committed key:
+
+```bash
+cosign verify \
+  --key https://raw.githubusercontent.com/h3ow3d/raggo/main/.github/cosign.pub \
+  ghcr.io/h3ow3d/raggo/backend@sha256:<digest>
+```
+
+See [`docs/images.md`](docs/images.md) for the full image inventory,
+tagging scheme, SBOM/provenance details, and the verification
+procedure.
+
 ## Contributing
 
 1. Read `PROJECT_SPEC.md` and `AGENTS.md`

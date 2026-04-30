@@ -126,4 +126,11 @@ USER appuser
 
 EXPOSE 8000
 
+# Probe the FastAPI lifespan-loaded model. CPU loading of even a 0.5B
+# model can take 30-90s on first boot, so `start_period` is generous.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=300s --retries=30 \
+    CMD python -c "import json,sys,urllib.request; \
+sys.exit(0 if json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)).get('status')=='ok' else 1)" \
+    || exit 1
+
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

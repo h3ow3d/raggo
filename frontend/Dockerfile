@@ -27,4 +27,9 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
+# Verify the nginx process is serving the SPA. `wget` ships with the
+# alpine base image; check the SPA index returns 200.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+    CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
+
 # Use the stock nginx CMD.
