@@ -69,9 +69,11 @@ class Settings(BaseSettings):
         alias="GENERATION_SERVICE_URL",
     )
     # Per-request HTTP timeout for generation calls (seconds). Generation
-    # is much slower than embedding, especially on CPU.
+    # is much slower than embedding, especially on CPU. Should be larger
+    # than the generation service's own GEN_TIMEOUT_SECONDS so the inner
+    # timeout fires first and the client receives a clean 504.
     generation_request_timeout: float = Field(
-        default=180.0, gt=0, alias="GENERATION_REQUEST_TIMEOUT"
+        default=360.0, gt=0, alias="GENERATION_REQUEST_TIMEOUT"
     )
     # Caps on agent retrieval. Bounds evidence size sent to the LLM and
     # the work done per query.
@@ -82,7 +84,7 @@ class Settings(BaseSettings):
         default=10, ge=1, le=50, alias="AGENT_MAX_SQL_RESULTS"
     )
     agent_max_new_tokens: int = Field(
-        default=400, ge=16, le=1024, alias="AGENT_MAX_NEW_TOKENS"
+        default=256, ge=16, le=1024, alias="AGENT_MAX_NEW_TOKENS"
     )
     generation_model_name: str = Field(
         default="Qwen/Qwen2.5-0.5B-Instruct",
