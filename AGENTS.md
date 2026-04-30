@@ -442,3 +442,5 @@ Examples of valid PR titles:
 Do not use bare phase labels such as `Phase 3: ...` as a PR title — they fail commitlint with `type-empty` and `subject-empty` because there is no Conventional Commits type prefix. If the work belongs to a phase, put the phase in the scope (e.g. `test(phase-3): ...`) rather than the type slot.
 
 Every commit on a branch must also be a valid Conventional Commit, since CI lints the full commit history of the PR in addition to the title.
+
+The header line (the `<type>(<scope>): <subject>` line) must be **100 characters or fewer** — this is enforced by the `header-max-length` rule in `commitlint.config.js`. Keep subjects short and put detail in the commit body, which has no line-length limit in this repo. When listing several modules in a subject, prefer a summarising noun (e.g. `agent` instead of `intent, prompt, orchestrator`).
