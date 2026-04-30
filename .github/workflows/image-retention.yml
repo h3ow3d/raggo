@@ -1,0 +1,118 @@
+# Weekly image retention.
+#
+# Prunes ephemeral container image versions on GHCR that are older than
+# 30 days. Specifically:
+#
+#   - tags matching `sha-<short>`     (default-branch builds)
+#   - tags matching `pr-<num>-sha-<short>` (PR previews)
+#
+# Semver tags (`vMAJOR.MINOR.PATCH`) and `latest` are NEVER pruned.
+# Untagged image manifests created as part of multi-arch indexes are
+# left alone — deleting them would orphan the parent index.
+#
+# Runs every Sunday at 03:00 UTC. Can be invoked manually via
+# workflow_dispatch for ad-hoc cleanup.
+
+name: image-retention
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, list candidates without deleting."
+        required: false
+        type: boolean
+        default: false
+      max_age_days:
+        description: "Prune ephemeral tags older than this many days."
+        required: false
+        type: string
+        default: "30"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - backend
+          - frontend
+          - postgres-pgvector
+          - embedding-model
+          - generation-model
+    steps:
+      - name: Prune stale ephemeral tags for ${{ matrix.package }}
+        uses: actions/github-script@v7
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          MAX_AGE_DAYS: ${{ github.event.inputs.max_age_days || '30' }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = 'h3ow3d';
+            const project = 'raggo';
+            const pkg = '${{ matrix.package }}';
+            const fullName = `${project}/${pkg}`;
+            const dryRun = (process.env.DRY_RUN || 'false') === 'true';
+            const maxAgeDays = parseInt(process.env.MAX_AGE_DAYS || '30', 10);
+            const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+            // Match only ephemeral tag patterns. Anything else (semver
+            // like vX.Y.Z, latest, model revision suffixes, untagged
+            // manifests) is left alone.
+            const ephemeral = (tag) =>
+              /^sha-[0-9a-f]{7,40}$/.test(tag) ||
+              /^pr-\d+-sha-[0-9a-f]{7,40}$/.test(tag);
+
+            const versions = await github.paginate(
+              github.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+              {
+                package_type: 'container',
+                package_name: encodeURIComponent(fullName),
+                username: owner,
+                per_page: 100,
+              },
+            );
+
+            let pruned = 0;
+            let kept = 0;
+            for (const v of versions) {
+              const tags = (v.metadata && v.metadata.container && v.metadata.container.tags) || [];
+              if (tags.length === 0) {
+                kept++;
+                continue;
+              }
+              // Only prune if EVERY tag on this version is ephemeral.
+              // A multi-tagged version that includes e.g. a semver tag
+              // must be preserved.
+              if (!tags.every(ephemeral)) {
+                kept++;
+                continue;
+              }
+              const updated = new Date(v.updated_at).getTime();
+              if (updated >= cutoff) {
+                kept++;
+                continue;
+              }
+              core.info(
+                `${dryRun ? '[dry-run] ' : ''}delete ${fullName} version ${v.id} ` +
+                  `tags=[${tags.join(',')}] updated=${v.updated_at}`,
+              );
+              if (!dryRun) {
+                await github.rest.packages.deletePackageVersionForUser({
+                  package_type: 'container',
+                  package_name: encodeURIComponent(fullName),
+                  username: owner,
+                  package_version_id: v.id,
+                });
+              }
+              pruned++;
+            }
+            core.info(`${fullName}: pruned=${pruned} kept=${kept}`);

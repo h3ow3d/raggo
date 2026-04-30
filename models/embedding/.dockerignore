@@ -1,0 +1,27 @@
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+
+# Tests / dev tooling
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Pre-downloaded weights from a host run (the image fetches its own
+# copy in the dedicated `weights` build stage).
+models/
+
+# VCS / editor / OS
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# Documentation that does not need to be in the image
+*.md

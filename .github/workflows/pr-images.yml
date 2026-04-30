@@ -1,0 +1,45 @@
+# PR preview image builds.
+#
+# Triggered on pull requests that touch image source. Calls the
+# reusable `build-images.yml` workflow with `sign: false` and amd64
+# only, pushing each image as `pr-<num>-sha-<short>` so reviewers can
+# pull the artifact under review.
+#
+# Per Phase 1: PR preview images are NOT signed, NOT multi-arch, and
+# are pruned after 30 days by `image-retention.yml`.
+
+name: pr-images
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "db/**"
+      - "models/**"
+      - ".github/workflows/build-images.yml"
+      - ".github/workflows/pr-images.yml"
+
+# Cancel superseded PR builds for the same head ref to avoid spending
+# runner minutes on stale revisions.
+concurrency:
+  group: pr-images-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-images.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      app_archs: linux/amd64
+      model_archs: linux/amd64
+      push_latest: false
+      sign: false

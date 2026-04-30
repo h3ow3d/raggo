@@ -1,0 +1,24 @@
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Tests / dev tooling not needed in the image
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# VCS / editor / OS
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# Documentation that does not need to be in the image
+*.md

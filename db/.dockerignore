@@ -1,0 +1,9 @@
+# VCS / editor / OS
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# Documentation that does not need to be in the image
+*.md

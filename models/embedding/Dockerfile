@@ -105,4 +105,11 @@ USER appuser
 
 EXPOSE 8000
 
+# Probe the FastAPI lifespan-loaded model. `start_period` is generous
+# because cold-loading on CPU can take a while on first boot.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=180s --retries=20 \
+    CMD python -c "import json,sys,urllib.request; \
+sys.exit(0 if json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)).get('status')=='ok' else 1)" \
+    || exit 1
+
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
