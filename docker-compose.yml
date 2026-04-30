@@ -170,12 +170,18 @@ services:
       GENERATION_MODEL_NAME: ${GENERATION_MODEL_NAME:-Qwen/Qwen2.5-0.5B-Instruct}
       GENERATION_MODEL_DIR: /models/generation
       # Per-request wall-clock cap inside the generation service. Must be
-      # <= the backend's GENERATION_REQUEST_TIMEOUT so that the inner
-      # timeout fires first and the service returns a clean 504 rather
-      # than the backend hitting an httpx ReadTimeout. Default sized for
-      # CPU inference of a ~0.5B model with the default
+      # strictly less than the backend's GENERATION_REQUEST_TIMEOUT,
+      # ideally with a small buffer for HTTP/scheduling overhead, so that
+      # the inner timeout fires first and the service returns a clean 504
+      # rather than the backend hitting an httpx ReadTimeout. Default
+      # sized for CPU inference of a ~0.5B model with the default
       # AGENT_MAX_NEW_TOKENS.
       GEN_TIMEOUT_SECONDS: ${GEN_TIMEOUT_SECONDS:-300}
+      # Default `max_new_tokens` applied inside the generation service
+      # when the backend does not specify one. The backend's agent always
+      # sends an explicit value (AGENT_MAX_NEW_TOKENS), so this only
+      # affects direct callers of /generate. Kept aligned with the
+      # backend default to avoid surprising behaviour for ad-hoc probes.
       GEN_DEFAULT_MAX_NEW_TOKENS: ${GEN_DEFAULT_MAX_NEW_TOKENS:-256}
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
