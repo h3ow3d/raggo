@@ -30,6 +30,13 @@ Once the stack is up:
 - Backend stats:      <http://localhost:8000/stats>
 - Domain info:        <http://localhost:8000/domain>
 
+For Kubernetes installs see [`docs/install-kubernetes.md`](docs/install-kubernetes.md);
+the chart at `helm/raggo/` brings up the full stack with the same
+security posture (NetworkPolicies, non-root pods, internal-only model
+services) and is published as an OCI artifact at
+`oci://ghcr.io/h3ow3d/raggo/charts/raggo` by the Phase 6 release
+pipeline.
+
 The frontend (currently flights-domain-aware) has four pages:
 
 - **Dashboard** — live counts of flights, logs, incidents, embedded /
@@ -491,6 +498,40 @@ cosign verify \
 See [`docs/images.md`](docs/images.md) for the full image inventory,
 tagging scheme, SBOM/provenance details, and the verification
 procedure.
+
+## Kubernetes install
+
+raggo ships a first-class Helm chart under [`helm/raggo/`](helm/raggo)
+that brings up the same stack on Kubernetes with the same security
+posture as the Compose deployment: NetworkPolicies isolate the model
+and database services, every pod runs as non-root with a
+`RuntimeDefault` seccomp profile, root filesystems are read-only where
+feasible, and capabilities are dropped.
+
+Quick start (kind or any cluster):
+
+```bash
+helm install raggo ./helm/raggo \
+  --namespace raggo --create-namespace \
+  --set secret.values.postgresPassword="$(openssl rand -hex 16)" \
+  --wait --timeout 20m
+
+helm test raggo --namespace raggo
+```
+
+The chart is published as an OCI artifact at
+`oci://ghcr.io/h3ow3d/raggo/charts/raggo` by the Phase 6 release
+pipeline; until then, install from a local checkout as shown above.
+GPU installs use the matching overlay:
+
+```bash
+helm install raggo ./helm/raggo -f ./helm/raggo/values-gpu.yaml \
+  --namespace raggo --create-namespace
+```
+
+See [`docs/install-kubernetes.md`](docs/install-kubernetes.md) for
+external-Postgres mode, Ingress configuration, air-gap installs, and
+troubleshooting.
 
 ## Contributing
 

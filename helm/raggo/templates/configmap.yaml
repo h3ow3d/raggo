@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "config") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.labels" . | nindent 4 }}
+data:
+  # Backend tunables (mirrors the Compose `environment:` block).
+  EMBEDDING_MODEL_NAME: {{ .Values.backend.env.embeddingModelName | quote }}
+  EMBEDDING_DIM: {{ .Values.backend.env.embeddingDim | quote }}
+  GENERATION_MODEL_NAME: {{ .Values.backend.env.generationModelName | quote }}
+  AGENT_MAX_NEW_TOKENS: {{ .Values.backend.env.agentMaxNewTokens | quote }}
+  EMBEDDING_REQUEST_TIMEOUT: {{ .Values.backend.env.embeddingRequestTimeout | quote }}
+  GENERATION_REQUEST_TIMEOUT: {{ .Values.backend.env.generationRequestTimeout | quote }}
+  INGEST_BATCH_SIZE: {{ .Values.backend.env.ingestBatchSize | quote }}
+  STARTUP_INGEST_LIMIT: {{ .Values.backend.env.startupIngestLimit | quote }}
+  CORS_ALLOW_ORIGINS: {{ .Values.backend.env.corsAllowOrigins | quote }}
+
+  # Internal service URLs. The model services live behind ClusterIP
+  # services that NetworkPolicies restrict to the backend.
+  EMBEDDING_SERVICE_URL: "http://{{ include "raggo.componentName" (dict "ctx" $ "component" "embedding-model") }}:{{ .Values.embeddingModel.service.port }}"
+  GENERATION_SERVICE_URL: "http://{{ include "raggo.componentName" (dict "ctx" $ "component" "generation-model") }}:{{ .Values.generationModel.service.port }}"
+
+  # Generation service tunables.
+  GEN_TIMEOUT_SECONDS: {{ .Values.generationModel.env.genTimeoutSeconds | quote }}
+  GEN_DEFAULT_MAX_NEW_TOKENS: {{ .Values.generationModel.env.genDefaultMaxNewTokens | quote }}
+
+  # Seed sizes (only consumed by the seed Job).
+  SEED_FLIGHT_COUNT: {{ .Values.seed.env.seedFlightCount | quote }}
+  SEED_LOG_COUNT: {{ .Values.seed.env.seedLogCount | quote }}
+  SEED_INCIDENT_COUNT: {{ .Values.seed.env.seedIncidentCount | quote }}
+
+  # Offline-mode markers for the model services. They never reach the
+  # internet at runtime; the model weights are baked into the image.
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_DATASETS_OFFLINE: "1"

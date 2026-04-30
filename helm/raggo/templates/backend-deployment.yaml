@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "backend") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "backend") | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "raggo.componentLabels" (dict "ctx" $ "component" "backend") | nindent 8 }}
+        {{- with .Values.backend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the deployment when the ConfigMap or Secret changes so a
+        # `helm upgrade --reuse-values` actually picks up new env vars.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.backend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "raggo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "raggo.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "raggo.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: backend
+          image: {{ include "raggo.image" (dict "ctx" $ "image" .Values.backend.image) }}
+          imagePullPolicy: {{ include "raggo.imagePullPolicy" (dict "ctx" $ "image" .Values.backend.image) }}
+          securityContext:
+            {{- include "raggo.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "raggo.componentName" (dict "ctx" $ "component" "config") }}
+          env:
+            {{- include "raggo.databaseEnv" . | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.backend.startupProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.backend.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts:
+            # `readOnlyRootFilesystem: true` is enforced via the chart
+            # default. The backend writes nothing of substance to disk
+            # but Python may need a scratch /tmp.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

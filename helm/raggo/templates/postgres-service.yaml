@@ -1,0 +1,22 @@
+{{- if not .Values.postgres.external.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "postgres") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "postgres") | nindent 4 }}
+spec:
+  type: ClusterIP
+  # Headless service so each StatefulSet replica has a stable DNS name
+  # if we ever scale beyond one. Single-replica installs still resolve
+  # via the regular service name.
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: {{ .Values.postgres.internal.service.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "postgres") | nindent 4 }}
+{{- end -}}

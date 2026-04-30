@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "generation-model") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "generation-model") | nindent 4 }}
+spec:
+  type: {{ .Values.generationModel.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.generationModel.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "generation-model") | nindent 4 }}

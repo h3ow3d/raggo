@@ -1,0 +1,41 @@
+# Air-gapped CI values. Mirrors how operators retag mirrored images
+# under a private registry. The Phase 5 air-gap procedure
+# (`helm/raggo/AIRGAP.md`) drives this file.
+#
+# Used by:
+#   helm template helm/raggo \
+#     -f helm/raggo/ci/values-airgapped.yaml \
+#     --set global.image.registry=registry.local/raggo
+
+global:
+  image:
+    # The CI workflow overrides this on the command line so the
+    # generated rendering matches what an operator runs locally.
+    registry: registry.local/raggo
+    pullPolicy: IfNotPresent
+    pullSecrets:
+      - name: airgap-registry
+
+# Disable the seed hook in air-gapped CI: a real install seeds once
+# from the bundled fixture pack.
+seed:
+  enabled: false
+
+# Pin every image with a placeholder digest so the schema's
+# digest-pattern check exercises a non-empty value.
+backend:
+  image:
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+frontend:
+  image:
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+embeddingModel:
+  image:
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+generationModel:
+  image:
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+postgres:
+  internal:
+    image:
+      digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

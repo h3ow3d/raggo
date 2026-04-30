@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "raggo Helm chart values",
+  "type": "object",
+  "additionalProperties": true,
+  "definitions": {
+    "imagePullPolicy": {
+      "description": "Image pull policy. `Always` is rejected to keep installs reproducible; pin by digest or use IfNotPresent.",
+      "type": "string",
+      "enum": ["", "IfNotPresent", "Never"]
+    },
+    "imageTag": {
+      "description": "Image tag. The literal `latest` is forbidden to keep installs reproducible.",
+      "type": "string",
+      "minLength": 1,
+      "not": { "const": "latest" }
+    },
+    "imageDigest": {
+      "description": "Optional image digest. When set, takes precedence over the tag.",
+      "type": "string",
+      "pattern": "^(|sha256:[a-f0-9]{64})$"
+    },
+    "componentImage": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/definitions/imageDigest" },
+        "tag": { "$ref": "#/definitions/imageTag" },
+        "pullPolicy": { "$ref": "#/definitions/imagePullPolicy" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "requests": { "type": "object" },
+        "limits": { "type": "object" }
+      }
+    }
+  },
+  "properties": {
+    "global": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "registry": { "type": "string", "minLength": 1 },
+            "pullPolicy": { "$ref": "#/definitions/imagePullPolicy" },
+            "pullSecrets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "name": { "type": "string", "minLength": 1 } }
+              }
+            }
+          }
+        },
+        "nameOverride": { "type": "string" },
+        "fullnameOverride": { "type": "string" },
+        "commonLabels": { "type": "object" },
+        "commonAnnotations": { "type": "object" }
+      }
+    },
+    "domain": { "type": "string", "minLength": 1 },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "podSecurityContext": { "type": "object" },
+    "containerSecurityContext": { "type": "object" },
+    "networkPolicies": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "backend": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": { "$ref": "#/definitions/componentImage" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "service": { "type": "object" },
+        "env": { "type": "object" },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": { "$ref": "#/definitions/componentImage" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "service": { "type": "object" },
+        "ingress": { "type": "object" },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "embeddingModel": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": { "$ref": "#/definitions/componentImage" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "service": { "type": "object" },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "generationModel": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": { "$ref": "#/definitions/componentImage" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "service": { "type": "object" },
+        "env": { "type": "object" },
+        "gpu": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "runtimeClassName": { "type": "string" },
+            "count": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "postgres": {
+      "type": "object",
+      "properties": {
+        "external": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "existingSecret": { "type": "string" },
+            "secretKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "internal": {
+          "type": "object",
+          "properties": {
+            "image": { "$ref": "#/definitions/componentImage" },
+            "database": { "type": "string", "minLength": 1 },
+            "user": { "type": "string", "minLength": 1 },
+            "storage": {
+              "type": "object",
+              "properties": {
+                "size": { "type": "string", "minLength": 1 },
+                "storageClassName": { "type": "string" },
+                "accessModes": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            },
+            "resources": { "$ref": "#/definitions/resources" },
+            "service": { "type": "object" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "comment": "When postgres.external.enabled is true, an existingSecret must be provided.",
+          "if": {
+            "properties": {
+              "external": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["external"]
+          },
+          "then": {
+            "properties": {
+              "external": {
+                "required": ["existingSecret"],
+                "properties": {
+                  "existingSecret": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "secret": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "existingName": { "type": "string" },
+        "values": {
+          "type": "object",
+          "properties": {
+            "postgresPassword": { "type": "string" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "comment": "Exactly one secret mode: create OR reference existingName.",
+          "if": {
+            "properties": { "create": { "const": false } },
+            "required": ["create"]
+          },
+          "then": {
+            "required": ["existingName"],
+            "properties": {
+              "existingName": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "migrate": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "seed": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "postUpgrade": { "type": "boolean" },
+        "env": { "type": "object" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

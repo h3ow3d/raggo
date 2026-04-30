@@ -1,0 +1,224 @@
+{{- if .Values.networkPolicies.enabled -}}
+{{- /*
+   Default-deny all ingress and egress in the release namespace, then
+   carve out the precise paths the chart needs:
+
+     frontend  → backend
+     backend   → postgres        (or external secret-only)
+     backend   → embedding-model
+     backend   → generation-model
+     model pods: deny all egress, allow only ingress from backend
+     all pods : allow DNS egress to kube-dns
+
+   These policies mirror the Compose `frontend_net`/`database_net`/
+   `model_net` topology, where the model and database services are on
+   internal networks reachable only from the backend.
+*/ -}}
+---
+# Baseline: deny everything in the namespace, then allow per policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "default-deny") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow DNS egress for every pod the chart manages so that
+# `embedding-model` etc. can resolve the in-cluster service names.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "allow-dns") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: raggo
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Frontend: accept inbound from anywhere in the namespace (and
+# typically an Ingress controller), and allow egress only to the
+# backend service.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "frontend") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "frontend") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "frontend") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow anything in the cluster (and an Ingress controller in the
+    # ingress namespace) to reach the SPA. Operators tighten this by
+    # restricting to their ingress controller's labels.
+    - {}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# Backend: accept inbound from the frontend; allow egress to postgres
+# and to both model services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "backend") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "backend") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "frontend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    {{- if not .Values.postgres.external.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "postgres") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.internal.service.port }}
+    {{- end }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "embedding-model") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.embeddingModel.service.port }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "generation-model") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.generationModel.service.port }}
+{{- if not .Values.postgres.external.enabled }}
+---
+# Postgres: accept inbound only from the backend and migrate/seed jobs;
+# deny all egress (no Internet, no other pods).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "postgres") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "postgres") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "postgres") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "migrate") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "seed") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.internal.service.port }}
+  # No egress rules → all egress denied (DNS allowed by the shared
+  # `allow-dns` policy above).
+{{- end }}
+---
+# Embedding model: accept inbound only from the backend; deny all egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "embedding-model") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "embedding-model") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "embedding-model") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.embeddingModel.service.port }}
+  # No egress: model containers must never reach the Internet.
+---
+# Generation model: same posture as embedding model.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "generation-model") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "generation-model") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "generation-model") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.generationModel.service.port }}
+  # No egress.
+{{- end -}}

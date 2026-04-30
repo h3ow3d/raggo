@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "frontend") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "frontend") | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "frontend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "raggo.componentLabels" (dict "ctx" $ "component" "frontend") | nindent 8 }}
+        {{- with .Values.frontend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Bounce the deployment when the nginx config changes.
+        checksum/nginx: {{ include (print $.Template.BasePath "/frontend-configmap.yaml") . | sha256sum }}
+        {{- with .Values.frontend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "raggo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "raggo.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "raggo.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: frontend
+          image: {{ include "raggo.image" (dict "ctx" $ "image" .Values.frontend.image) }}
+          imagePullPolicy: {{ include "raggo.imagePullPolicy" (dict "ctx" $ "image" .Values.frontend.image) }}
+          securityContext:
+            {{- include "raggo.containerSecurityContext" . | nindent 12 }}
+          ports:
+            # Listens on 8080 (not 80) so the container can run as a
+            # non-root user. The chart-managed nginx config mounted at
+            # /etc/nginx/conf.d/default.conf binds to 8080 explicitly.
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            # Replace the baked-in default.conf so the proxy target
+            # points at the in-cluster backend service.
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+            # `readOnlyRootFilesystem: true` requires writable scratch
+            # for nginx's caches, runtime PID/socket dir, and any
+            # ad-hoc /tmp writes from the nginx workers.
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: {{ include "raggo.componentName" (dict "ctx" $ "component" "frontend-nginx") }}
+            items:
+              - key: default.conf
+                path: default.conf
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,4 @@
+# Minimal CI values: the chart's defaults rendered with no overrides.
+# Used by `helm template … | kubeconform` to verify the out-of-the-box
+# install path stays valid.
+{}
