@@ -306,7 +306,7 @@ Do not require GPU for the default setup.
 
 Use Docker Compose networks intentionally.
 
-Do not use Kubernetes.
+Kubernetes is a supported production install target via the `raggo` Helm chart published to `oci://ghcr.io/h3ow3d/raggo/charts/raggo`. Docker Compose remains the default development and small-deployment path. See the phase plan in `PHASE_0_FOUNDATIONS.md` through `PHASE_8_OPERATIONS.md`.
 
 ---
 

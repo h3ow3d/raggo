@@ -410,7 +410,6 @@ Do:
 - use small default models
 - use clear Python modules
 - avoid unnecessary framework complexity
-- avoid Kubernetes
 - avoid microservice sprawl beyond the required services
 - keep frontend simple
 - keep README commands clear
@@ -1091,5 +1090,84 @@ After each phase, verify Docker Compose, imports, dependencies, and basic health
 When unsure, choose the simplest implementation that satisfies the acceptance criteria.
 
 Do not create placeholder implementations for core functionality.
+```
+
+---
+
+# 21. Install Targets, Image Distribution, Signing, and Releases
+
+This section was added after the initial spec to record decisions that govern how `raggo` is built, distributed, and installed. The phased delivery plan that operationalises this section lives in the root of the repository as `PHASE_0_FOUNDATIONS.md` through `PHASE_8_OPERATIONS.md`.
+
+## 21.1 Supported install targets
+
+`raggo` supports two install paths from the same source tree:
+
+1. **Docker Compose** — the default for development and small deployments. `docker compose up --build` must continue to work.
+2. **Kubernetes via Helm** — the production install path. The chart is named `raggo` and is published as an OCI artifact at `oci://ghcr.io/h3ow3d/raggo/charts/raggo`.
+
+Both install paths consume the same container images, pinned by digest, and must satisfy the same security model defined in this spec (no host exposure of Postgres or model services, internal-only networks, no runtime egress from model containers).
+
+## 21.2 Container image distribution (GHCR)
+
+All container images are published to GitHub Container Registry under `ghcr.io/h3ow3d/raggo/`:
+
+- `ghcr.io/h3ow3d/raggo/backend`
+- `ghcr.io/h3ow3d/raggo/frontend`
+- `ghcr.io/h3ow3d/raggo/embedding-model`
+- `ghcr.io/h3ow3d/raggo/generation-model`
+- `ghcr.io/h3ow3d/raggo/postgres-pgvector`
+
+Rules:
+
+- **Visibility:** packages are **public**. No pull secret is required for installs.
+- **Architectures:** `linux/amd64` and `linux/arm64` for application images; model images may be amd64-only if size requires it.
+- **Tagging:** semver (`vMAJOR.MINOR.PATCH`), git short SHA (`sha-<short>`), and `latest` only on the default branch. Compose files and the Helm chart reference images **by digest**, never by `latest`.
+- **PR previews:** PR builds publish ephemeral images tagged `pr-<num>-sha-<short>` and are expired after 30 days.
+
+## 21.3 Image signing and provenance
+
+- All release images are signed with **cosign using a long-lived key pair**. The public key is committed to the repository at `.github/cosign.pub` and published in the GitHub Release notes. The private key lives in the `COSIGN_PRIVATE_KEY` GitHub Actions secret with passphrase in `COSIGN_PASSWORD`.
+- Each release image has an attached **SBOM** (syft, SPDX JSON) and **SLSA provenance** attestation.
+- The Helm chart OCI artifact is signed with the same cosign key.
+
+## 21.4 Helm chart
+
+- Chart name: `raggo`.
+- Chart location in the repo: `helm/raggo/`.
+- Published to: `oci://ghcr.io/h3ow3d/raggo/charts/raggo`.
+- Image references default to digests on GHCR. `global.image.registry` allows redirecting to an internal mirror for air-gapped installs.
+- `values.schema.json` is enforced and rejects `latest` tags and `imagePullPolicy: Always`.
+- Default posture: NetworkPolicies enabled, `runAsNonRoot`, `readOnlyRootFilesystem` where feasible, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, seccomp `RuntimeDefault`.
+- Postgres ships as a chart-managed StatefulSet by default (no Bitnami/community chart dependencies). An external Postgres can be supplied via `postgres.external.enabled=true`.
+- Secrets are never baked into the chart: either `secret.create=true` for dev or reference an existing Secret in production.
+- A GPU values overlay (`values-gpu.yaml`) mirrors the existing `docker-compose.gpu.yml`.
+
+## 21.5 Versioning and releases
+
+- The repository follows **Conventional Commits**.
+- Releases are **automated** (e.g. `release-please` or `semantic-release`): merging conventional commits to the default branch produces version bumps, changelog updates, and tags. Tagging triggers the release workflow that builds and pushes images, packages and pushes the Helm chart, generates SBOMs and provenance, signs everything with cosign, builds the air-gap bundle, and creates the GitHub Release.
+- Squash-merge with linear history. Signed commits are required on the default branch.
+
+## 21.6 Air-gap installs
+
+- A reproducible offline bundle is produced on every release: image tarballs (pulled by digest), packaged Helm chart `.tgz`, SBOMs, vulnerability scan reports, and an `install.sh` for the Compose path.
+- Kubernetes air-gap installs use `helm pull` on a connected jumpbox plus `global.image.registry` to point at the customer's internal mirror. The procedure is documented in `helm/raggo/AIRGAP.md`.
+- Air-gap smoke tests run in CI for both the Compose path and the Helm path with model containers having no egress.
+
+## 21.7 Phased delivery
+
+Implementation follows the phases described in:
+
+- `PHASE_0_FOUNDATIONS.md`
+- `PHASE_1_GHCR_IMAGES.md`
+- `PHASE_2_CORE_CI.md`
+- `PHASE_3_BACKEND_AGENT.md`
+- `PHASE_4_HELM_CHART.md`
+- `PHASE_5_AIRGAP_BUNDLE.md`
+- `PHASE_6_RELEASE_PIPELINE.md`
+- `PHASE_7_DOMAIN_PACKS.md`
+- `PHASE_8_OPERATIONS.md`
+
+Each phase has its own exit criteria. A phase is not complete until its exit criteria are met, including any updates to this spec, `AGENTS.md`, and `README.md` that the phase introduces.
 
 Keep the project understandable for someone learning RAG, vectors, agents, and databases from scratch.
