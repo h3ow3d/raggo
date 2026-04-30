@@ -120,11 +120,12 @@ services:
     # the backend at http://embedding-model:8000 over `model_net`.
     networks:
       - model_net
-    # Probe the FastAPI lifespan-loaded model. `/health` returns
-    # status="loading" until SentenceTransformer finishes loading from disk
-    # and status="ok" afterwards. Until "ok", the container reports
-    # unhealthy and the backend's depends_on (service_healthy) blocks
-    # startup ingestion, avoiding the "Connection refused" race.
+    # Probe the FastAPI lifespan-loaded model. Because the app loads the
+    # SentenceTransformer during startup (inside the lifespan), uvicorn
+    # will refuse connections until startup completes; once it is serving
+    # requests, `/health` returns status="ok". Until then, the container
+    # reports unhealthy and the backend's depends_on (service_healthy)
+    # blocks startup ingestion, avoiding the "Connection refused" race.
     # `start_period` is generous because cold-loading on CPU can take a
     # while on first boot. The image has no curl/wget; use python stdlib.
     healthcheck:
@@ -174,10 +175,12 @@ services:
     # the backend at http://generation-model:8000 over `model_net`.
     networks:
       - model_net
-    # Probe the FastAPI lifespan-loaded model. `/health` returns
-    # status="loading" until the HF causal LM finishes loading and
-    # status="ok" afterwards. CPU loading of even a 0.5B model can take
-    # 30-90s on first boot, so `start_period` is intentionally generous.
+    # Probe the FastAPI service after its lifespan startup completes.
+    # The HF causal LM is loaded during startup (inside the lifespan),
+    # so uvicorn will refuse connections on `/health` until loading
+    # finishes; once reachable, `/health` reports status="ok". CPU
+    # loading of even a 0.5B model can take 30-90s on first boot, so
+    # `start_period` is intentionally generous.
     healthcheck:
       test:
         - CMD
