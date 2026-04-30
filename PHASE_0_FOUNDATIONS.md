@@ -10,7 +10,8 @@ Establish the repository scaffolding, baseline tooling, and spec alignment that 
   - Internal `model_net` (Docker `internal: true`), `database_net`, `frontend_net`.
   - No host port exposure for `postgres`, `embedding-model`, `generation-model`.
 - Existing `docker-compose.gpu.yml` retained and validated.
-- Postgres + pgvector image, Alembic migrations directory, and a seed-data generator that produces a realistic medium-sized flight ops corpus (flights, logs, incidents, delays, weather, maintenance, safety events, noisy records).
+- Postgres + pgvector image with the existing `db/init.sql` (extension enablement) plus the per-domain `backend/app/domains/<pack>/init.sql` bootstrap that the backend already runs at startup. **No migration framework (Alembic, Flyway, etc.) is introduced in this phase** — schema management stays init.sql-driven. A decision to adopt a migration tool would be a follow-up tracked separately and reflected back into the spec before any phase doc references it.
+- Seed-data generators per domain pack (already present for `flights` and `support_tickets`) producing a realistic medium-sized corpus.
 - FastAPI backend skeleton with `/health` endpoint, config module, database connection module.
 - Vite + React + TypeScript frontend skeleton with a placeholder dashboard route.
 - Pre-commit hooks: `ruff` (lint+format), `mypy`, `eslint`, `prettier`, `shellcheck`, `gitleaks`. All hooks must pass on a clean checkout.
@@ -20,7 +21,7 @@ Establish the repository scaffolding, baseline tooling, and spec alignment that 
 
 - Directory tree present with placeholder `README.md` per top-level directory where useful.
 - `docker-compose.yml` that passes `docker compose config`.
-- Postgres container starts, runs migrations, loads seed data automatically.
+- Postgres container starts and applies `db/init.sql` (pgvector extension) via the standard `docker-entrypoint-initdb.d` mechanism. The backend then applies the active domain pack's `init.sql` and runs its seed generator on first boot. Re-runs are idempotent.
 - Backend `/health` returns 200 from inside the network.
 - Frontend serves a placeholder page on the documented host port.
 - `.pre-commit-config.yaml` and matching tool configs (`pyproject.toml`, `.eslintrc.*`, `.prettierrc`, `.shellcheckrc`, `.gitleaks.toml`).

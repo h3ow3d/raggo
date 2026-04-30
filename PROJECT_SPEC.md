@@ -1121,7 +1121,7 @@ Rules:
 
 - **Visibility:** packages are **public**. No pull secret is required for installs.
 - **Architectures:** `linux/amd64` and `linux/arm64` for application images; model images may be amd64-only if size requires it.
-- **Tagging:** semver (`vMAJOR.MINOR.PATCH`), git short SHA (`sha-<short>`), and `latest` only on the default branch. Compose files and the Helm chart reference images **by digest**, never by `latest`.
+- **Tagging:** semver (`vMAJOR.MINOR.PATCH`), git short SHA (`sha-<short>`), and `latest` only on the default branch. **Release and air-gap deployment artifacts** (the published Helm chart's default values, the air-gap bundle's pinned Compose overlay, and any installer scripts) reference images **by digest**, never by `:latest`. The development `docker-compose.yml` at the repo root is allowed to use `build:` contexts and local tags (`rag-flight-lab/*:latest`, `pgvector/pgvector:pg16`) for fast iteration; it is not a deployment artifact.
 - **PR previews:** PR builds publish ephemeral images tagged `pr-<num>-sha-<short>` and are expired after 30 days.
 
 ## 21.3 Image signing and provenance

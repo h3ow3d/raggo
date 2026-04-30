@@ -6,36 +6,39 @@ Deliver the core product functionality on the Compose stack. After this phase, r
 
 ### Backend modules
 
-Implement the modules already enumerated in `AGENTS.md`:
+The backend layout in this repo, which Phase 3 work builds on (do **not** create parallel entrypoints under `backend/app/` at the top level — shared logic lives under `backend/app/core/`):
 
 ```
 backend/app/
-  main.py
-  config.py
-  database.py
-  models.py
-  schemas.py
-  seed.py
-  ingestion.py
-  vector_search.py
-  agent.py
-  model_clients.py
-  safe_sql_tools.py
-```
-
-Plus the domain abstraction introduced in this phase:
-
-```
-backend/app/domains/
-  __init__.py            # registry
-  flight_ops/
+  __init__.py
+  main.py                  # FastAPI entrypoint
+  core/
     __init__.py
-    schema.py            # SQLAlchemy models for the domain
-    seed.py              # seed-data generator
-    prompts.py           # system + tool prompts
-    sql_tools.py         # safe SQL tool definitions
-    fixtures/            # contract-test fixtures
+    config.py              # settings / env
+    database.py            # SQLAlchemy engine + session
+    domain.py              # domain-pack registry + loader
+    ingestion.py           # chunk + embed + upsert
+    vector_search.py       # pgvector similarity search
+    model_clients.py       # embedding-model + generation-model HTTP clients
+    safe_sql.py            # parameterised, allowlisted SQL tool runner
+    schemas.py             # cross-domain Pydantic schemas
+    agent/                 # basic RAG agent (intent → tools → grounded answer)
 ```
+
+Domain packs live alongside under `backend/app/domains/<pack>/`. The current convention (already implemented for `flights` and `support_tickets`) is:
+
+```
+backend/app/domains/<pack>/
+  __init__.py              # pack registration
+  init.sql                 # schema bootstrap applied on first boot
+  models.py                # SQLAlchemy models for this pack
+  seed.py                  # seed-data generator
+  prompts.py               # system + tool prompts
+  sql_tools.py             # parameterised, limit-bounded SQL tools
+  intent_rules.py          # intent classification rules used by the agent
+```
+
+Phase 3 keeps this structure as-is. Any rename or reshape of the pack layout (e.g. introducing `schema.py` or a `fixtures/` subdirectory) is an explicit refactor that must land in Phase 7 alongside the interface refactor described there, not silently here.
 
 ### Ingestion pipeline
 
@@ -88,10 +91,10 @@ A test suite (`backend/tests/contract/`) that every domain pack must pass:
 
 - Seed loads cleanly into a fresh DB.
 - Ingestion produces a non-zero number of embeddings.
-- Vector search returns expected hits for canned queries in `fixtures/`.
+- Vector search returns expected hits for canned queries shipped with the pack (fixtures committed under `backend/tests/contract/fixtures/<pack>/` rather than inside the pack, to keep packs free of test-only files).
 - Agent answers a fixture question with grounded evidence and emits a valid trace.
 
-The flight-ops pack is the first implementation of this contract.
+The `flights` pack (already in-repo) is the reference implementation that backfills this contract; the `support_tickets` pack must be brought up to the same contract as part of Phase 3 wrap-up.
 
 ## Deliverables
 
@@ -104,13 +107,13 @@ The flight-ops pack is the first implementation of this contract.
 ## Out of scope
 
 - Helm chart and Kubernetes install — Phase 4.
-- Multiple domain packs — Phase 7 (only flight-ops here).
+- Adding **new** domain packs beyond the two already in-repo (`flights`, `support_tickets`) — Phase 7.
 - Advanced agent features (memory, multi-step planning, human approval gates) — explicitly deferred per `AGENTS.md`.
 
 ## Exit criteria
 
 - All `AGENTS.md` acceptance criteria pass on a fresh `docker compose up --build`.
-- Contract test suite passes for the flight-ops domain pack.
+- Contract test suite passes for both the `flights` and `support_tickets` domain packs.
 - `/query` returns answer, evidence, and trace for at least the example questions documented in `README.md`.
 - No raw SQL string interpolation exists in the codebase (verified by a lint rule or test).
 - Coverage thresholds defined in Phase 2 are met by the new code.

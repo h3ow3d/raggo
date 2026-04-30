@@ -1,37 +1,38 @@
-# Phase 7 — Domain pack expansion
+# Phase 7 — Domain pack hardening, interface refactor, and a third pack
 
-Validate the domain abstraction introduced in Phase 3 by adding a second domain pack alongside flight-ops, and keep both passing the same contract on every PR.
+The repo already ships two domain packs (`flights`, `support_tickets`). Phase 7's job is to (a) harden the contract those packs share, (b) land the one-time interface refactor that the second pack already exposes as needed, and (c) prove the abstraction by adding a **third** pack under the cleaned-up interface.
 
 ## Scope
 
-### Second domain pack
+### Interface refactor (lands first)
 
-- Add a second pack under `backend/app/domains/<name>/` (candidate domains: maritime-ops, industrial-maintenance, rail-operations — pick one and document the choice in `docs/domain-packs.md`).
+- Audit `backend/app/core/domain.py` and the existing pack contracts (`flights`, `support_tickets`) for assumptions that leaked from the original `flights` implementation.
+- Rewrite the pack interface so both existing packs implement it cleanly (typical leaks to look for: `flights`-specific column names in shared agent code, prompts hard-coded to flight terminology, intent-rule shapes that only fit one schema).
+- This refactor lands **before** the third pack is added. Do not stack new-pack work on an unstable interface.
+- Update `docs/domain-packs.md` with the final interface.
+
+### Third domain pack
+
+- Add a third pack under `backend/app/domains/<name>/` using the same on-disk layout already used by `flights` and `support_tickets` (`__init__.py`, `init.sql`, `models.py`, `prompts.py`, `seed.py`, `sql_tools.py`, `intent_rules.py`).
+- Candidate domains: maritime-ops, industrial-maintenance, rail-operations — pick one and document the choice in `docs/domain-packs.md`.
 - The pack ships its own:
-  - SQLAlchemy schema additions (or an alternative DB schema selected at install time)
+  - SQLAlchemy models and `init.sql` schema bootstrap
   - seed data generator producing realistic medium-sized data
   - prompts (system + tool descriptions)
   - safe SQL tools, parameterised and limited
-  - contract-test fixtures
+  - intent rules
+- Contract-test fixtures for the new pack land alongside the existing pack fixtures under `backend/tests/contract/fixtures/<pack>/`.
 
 ### Domain selection at install
 
 - A single deployment runs **one** domain pack at a time (two domain packs do not co-exist in one DB; that is an explicit non-goal).
-- **Compose:** `docker-compose.<domain>.yml` overlay sets the `RAGGO_DOMAIN` env var and any domain-specific config.
-- **Helm:** `values-domain-<domain>.yaml` overlay sets `domain.name` and any pack-specific values. The chart's `values.schema.json` is updated to enumerate supported domain names.
+- **Compose:** the existing `RAGGO_DOMAIN` env var continues to drive selection. An optional `docker-compose.<domain>.yml` overlay can carry any pack-specific config (e.g. a different seed-count default).
+- **Helm:** `values-domain-<domain>.yaml` overlay sets `domain.name` and any pack-specific values. The chart's `values.schema.json` is updated to enumerate the supported domain names (`flights`, `support_tickets`, plus the new pack).
 - The backend reads `RAGGO_DOMAIN` at boot and resolves the pack via the registry; an unknown or missing domain fails fast with a clear error.
-
-### Refactor expectations
-
-- It is expected (and acceptable) that the domain interface introduced in Phase 3 needs **one** refactor during this phase. Land that refactor explicitly, not by accident:
-  - Identify the abstractions that leaked flight-ops assumptions.
-  - Rewrite the interface so both packs implement it cleanly.
-  - Do not add a third pack until the refactor lands.
-- Update `docs/domain-packs.md` with the final interface.
 
 ### Contract tests
 
-- The contract suite from Phase 3 runs against **every** bundled domain pack on every PR. A regression in either pack blocks merge.
+- The contract suite from Phase 3 runs against **every** bundled domain pack (now three) on every PR. A regression in any pack blocks merge.
 - Add cross-pack tests that assert the registry behaves correctly (correct pack loaded, unknown pack rejected, switching domains in tests is hermetic).
 
 ### Frontend
@@ -52,9 +53,9 @@ Validate the domain abstraction introduced in Phase 3 by adding a second domain 
 
 ## Exit criteria
 
-- Two domain packs (flight-ops + the new pack) both pass the contract test suite.
-- `docker compose -f docker-compose.yml -f docker-compose.<new>.yml up --build` brings up a working stack for the new domain.
+- All three domain packs (`flights`, `support_tickets`, and the new pack) pass the contract test suite.
+- `RAGGO_DOMAIN=<new> docker compose up --build` (optionally with a `docker-compose.<new>.yml` overlay) brings up a working stack for the new domain.
 - `helm install raggo ./helm/raggo -f helm/raggo/values-domain-<new>.yaml` brings up a working stack on kind.
-- The domain interface refactor is documented in the changelog and reflected in `docs/domain-packs.md`.
+- The domain interface refactor is documented in the changelog and reflected in `docs/domain-packs.md`. Both pre-existing packs were updated as part of the refactor commit; no pack carries pre-refactor shims.
 - An attempt to install with an unknown `domain.name` fails at chart-render time (schema) and at backend boot (defensive check).
-- README clearly states the one-domain-per-deployment rule.
+- README clearly states the one-domain-per-deployment rule and the supported domain list.

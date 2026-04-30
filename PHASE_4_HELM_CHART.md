@@ -82,7 +82,7 @@ helm/raggo/
 
 ### Hooks
 
-- `migrate-job.yaml` runs Alembic migrations as a `pre-upgrade` and `pre-install` hook.
+- `migrate-job.yaml` runs the **schema bootstrap / upgrade job** as a `pre-upgrade` and `pre-install` hook. The job applies `db/init.sql` (pgvector extension) and the active domain pack's `init.sql`, then runs any idempotent backfills the backend exposes as a CLI subcommand. No migration framework is introduced; if one is adopted later (see Phase 0 note), this hook is the seam where it would plug in.
 - `seed-job.yaml` runs the seed generator as a `post-install` (and optionally `post-upgrade`) hook, gated by `seed.enabled`.
 
 ### GPU overlay

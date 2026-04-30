@@ -33,7 +33,7 @@ At minimum:
 - `backup-restore-postgres.md` — for both the chart-managed StatefulSet and external Postgres, covering pgvector specifics.
 - `rotate-db-password.md` — without downtime, for both Compose and Helm installs.
 - `rotate-model-weights.md` — replace embedding or generation model image and re-ingest where required.
-- `recover-failed-upgrade.md` — including rolling back Alembic migrations and re-pointing at the previous chart version.
+- `recover-failed-upgrade.md` — including rolling back database schema changes (re-applying the previous pack's `init.sql` against a restored snapshot if needed) and re-pointing at the previous chart version.
 - `gpu-node-failure.md` — failover, scheduling, and degraded-mode behaviour.
 - `disk-full-embedding-cache.md` — diagnosis and remediation.
 - `incident-response.md` — pager workflow, log collection, evidence preservation.

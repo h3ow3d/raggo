@@ -15,7 +15,7 @@ With installable artifacts (images, chart, bundle) all working in isolation, har
 Single workflow that performs, in order:
 
 1. Re-run the full PR check suite for the release commit.
-2. Build and push multi-arch images to GHCR with semver tags + digests (Phase 1 logic).
+2. **Call** the reusable `build-images.yml` from Phase 1 with `sign: true` and the release tag set (semver + digest), pushing multi-arch images to GHCR.
 3. Generate SBOMs (syft) and SLSA provenance attestations.
 4. Sign images and the chart with cosign using the long-lived key.
 5. `helm package helm/raggo` with the release version, push to `oci://ghcr.io/h3ow3d/raggo/charts/raggo`, sign the chart artifact.
@@ -32,7 +32,7 @@ Single workflow that performs, in order:
 
 ### Upgrade smoke tests
 
-`.github/workflows/upgrade-smoke.yml` runs on PRs that touch migrations, the chart, or `backend/app/database.py`:
+`.github/workflows/upgrade-smoke.yml` runs on PRs that touch the chart, the per-domain `init.sql` files, or `backend/app/core/database.py`:
 
 - **Matrix:** `(N = previous-release, N+1 = PR build) × (compose, helm)`.
 - **Procedure:**
@@ -73,7 +73,7 @@ On merge to the default branch:
 ## Exit criteria
 
 - A merged release-please PR produces a tag that drives a complete signed release: signed multi-arch images, signed chart at `oci://ghcr.io/h3ow3d/raggo/charts/raggo`, attached SBOMs and provenance, attached air-gap bundle, GitHub Release with changelog.
-- Verification works end-to-end: `cosign verify --key cosign.pub` succeeds for both image and chart artifacts of the release.
+- Verification works end-to-end: `cosign verify --key .github/cosign.pub <ref>` succeeds for both image (`ghcr.io/h3ow3d/raggo/<image>@<digest>`) and chart (`ghcr.io/h3ow3d/raggo/charts/raggo:<version>`) artifacts of the release.
 - Upgrade smoke test passes for both Compose and Helm from the previous release to the PR build.
 - A deliberately introduced HIGH CVE in a Dockerfile fails the release scan.
 - CodeQL findings on a backend PR block the merge.
