@@ -124,7 +124,7 @@ fail_under = 0
 exclude_lines = [
   "pragma: no cover",
   "raise NotImplementedError",
-  "if __name__ == .__main__.:",
+  "if __name__ == [\"']__main__[\"']:",
   "if TYPE_CHECKING:",
 ]
 
@@ -138,5 +138,5 @@ exclude_lines = [
 # small refactors and config tweaks through. Tighten in later phases
 # once the test suite has matured.
 fail_under = 80
-include = ["backend/app/*"]
+include = ["backend/app/**"]
 diff_range_notation = ".."

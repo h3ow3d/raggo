@@ -25,9 +25,10 @@ on:
     branches:
       - main
 
-# Cancel superseded runs for the same PR so the queue doesn't pile up.
-# The default-branch run uses `github.run_id` so pushes never cancel
-# each other.
+# Group runs by ref so PR updates share the same concurrency key.
+# Only pull-request runs are canceled in progress; pushes to `main`
+# keep `cancel-in-progress: false` so default-branch runs never
+# cancel each other.
 concurrency:
   group: pr-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
