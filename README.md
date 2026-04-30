@@ -241,6 +241,42 @@ backend/app/domains/
   }
   ```
 
+## Example questions
+
+These questions are the ones the contract test suite replays against
+each domain pack. They're a deliberately minimal set that exercises
+all three retrieval strategies (`sql_only`, `vector_only`,
+`vector_and_sql`) and confirms the agent produces a grounded answer
+plus a populated `agent_trace`. See
+[`docs/agent.md`](docs/agent.md) for a per-strategy walk-through and
+[`docs/domain-packs.md`](docs/domain-packs.md) for the contract these
+questions encode.
+
+### Flights pack
+
+- _"Were there any critical safety incidents this week?"_ — hybrid;
+  invokes `get_incidents_by_severity` and a vector search over flight
+  logs.
+- _"Which airports are most associated with delays?"_ — structured;
+  invokes `get_top_delay_airports`.
+- _"Why are flights delayed lately?"_ — semantic; vector search over
+  flight logs.
+
+### Support tickets pack
+
+- _"Show me open tickets from this week."_ — structured; invokes
+  `get_open_tickets`.
+- _"Any critical urgent tickets we should escalate?"_ — hybrid;
+  invokes `get_tickets_by_priority` plus vector search over ticket
+  messages.
+- _"I was charged twice on my last invoice."_ — semantic; vector
+  search over ticket messages.
+
+The full canonical list lives at
+`backend/tests/contract/fixtures/<pack>/agent_questions.json`. Adding
+or changing a question there immediately becomes part of the contract
+the agent must satisfy.
+
 ## Security model
 
 - **PostgreSQL** is not exposed to the host (internal `database_net` only)
