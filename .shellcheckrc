@@ -1,0 +1,11 @@
+# shellcheck repository configuration.
+#
+# Keep things permissive in Phase 0; tighten as scripts are added.
+
+# Default to bash semantics for unsuffixed scripts.
+shell=bash
+
+# Allow `source` of files that aren't on the analyzer's path. Most of
+# our scripts (when they exist) source from relative paths inside the
+# checkout.
+external-sources=true

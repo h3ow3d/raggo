@@ -27,7 +27,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
-
 LOG = logging.getLogger("embedding-model")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -40,9 +39,7 @@ MODEL_DIR = os.environ.get("EMBEDDING_MODEL_DIR", "/models/embedding")
 # provenance mismatch.
 METADATA_FILENAME = "rag_flight_lab_model.json"
 # Falls back to the env var only if metadata is missing (older builds).
-ENV_MODEL_NAME = os.environ.get(
-    "EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2"
-)
+ENV_MODEL_NAME = os.environ.get("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 EXPECTED_DIM = int(os.environ.get("EMBEDDING_DIM", "384"))
 # Cap batch size to keep memory bounded for a CPU PoC. Callers can still
 # embed larger collections by issuing multiple requests.
@@ -178,18 +175,13 @@ def embed(req: EmbedRequest) -> EmbedResponse:
         if text_len > MAX_TEXT_CHARS:
             raise HTTPException(
                 status_code=413,
-                detail=(
-                    f"text at index {i} too large: "
-                    f"{text_len} > {MAX_TEXT_CHARS} chars"
-                ),
+                detail=(f"text at index {i} too large: {text_len} > {MAX_TEXT_CHARS} chars"),
             )
         total_chars += text_len
         if total_chars > MAX_TOTAL_CHARS:
             raise HTTPException(
                 status_code=413,
-                detail=(
-                    f"total payload too large: > {MAX_TOTAL_CHARS} chars"
-                ),
+                detail=(f"total payload too large: > {MAX_TOTAL_CHARS} chars"),
             )
 
     # `convert_to_numpy=True` then `.tolist()` gives plain JSON-serialisable
@@ -207,4 +199,3 @@ def embed(req: EmbedRequest) -> EmbedResponse:
         model=_model_name,
         dim=_actual_dim,
     )
-

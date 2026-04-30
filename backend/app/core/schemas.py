@@ -7,7 +7,7 @@ permissive containers (QueryEvidence with extra="allow", VectorHit metadata dict
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -19,6 +19,7 @@ class HealthResponse(BaseModel):
 
 class StatsResponse(BaseModel):
     """Generic stats response. Domain determines the fields."""
+
     model_config = {"extra": "allow"}
 
 
@@ -28,7 +29,7 @@ class StatsResponse(BaseModel):
 class IngestRequest(BaseModel):
     """Operator-triggered ingestion request body."""
 
-    limit: Optional[int] = Field(
+    limit: int | None = Field(
         default=None,
         ge=0,
         description=(
@@ -36,7 +37,7 @@ class IngestRequest(BaseModel):
             "Defaults to STARTUP_INGEST_LIMIT when omitted."
         ),
     )
-    batch_size: Optional[int] = Field(
+    batch_size: int | None = Field(
         default=None,
         ge=1,
         le=128,
@@ -45,7 +46,7 @@ class IngestRequest(BaseModel):
             "within the embedding service's default MAX_BATCH."
         ),
     )
-    resource: Optional[str] = Field(
+    resource: str | None = Field(
         default=None,
         description="Optional resource name. Defaults to all embeddable resources.",
     )
@@ -63,32 +64,32 @@ class IngestResponse(BaseModel):
 class VectorSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Free-text search query.")
     top_k: int = Field(default=10, ge=1, le=100)
-    resource: Optional[str] = Field(
+    resource: str | None = Field(
         default=None,
         description="Resource name to search. Defaults to first embeddable resource.",
     )
-    filters: Optional[Dict[str, Any]] = Field(
+    filters: Dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Optional structured filters. Allowed keys depend on the "
-            "resource's FilterSpec."
+            "Optional structured filters. Allowed keys depend on the resource's FilterSpec."
         ),
     )
 
 
 class VectorHit(BaseModel):
     """A single vector search result.
-    
+
     Generic shape: id, score, distance, text, and a metadata dict
     containing domain-specific fields projected by the resource's
     evidence_projection callable.
     """
+
     id: int
-    score: Optional[float] = Field(
+    score: float | None = Field(
         default=None,
         description="Cosine similarity in [-1, 1], higher is better.",
     )
-    distance: Optional[float] = Field(
+    distance: float | None = Field(
         default=None,
         description="Cosine distance in [0, 2], lower is better.",
     )
@@ -108,7 +109,7 @@ class VectorSearchResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, description="User question.")
-    top_k: Optional[int] = Field(
+    top_k: int | None = Field(
         default=None,
         ge=1,
         le=50,
@@ -128,8 +129,8 @@ class QueryEvidence(BaseModel):
     """
 
     type: str
-    id: Optional[Any] = None
-    message: Optional[str] = None
+    id: Any | None = None
+    message: str | None = None
 
     model_config = {"extra": "allow"}
 
@@ -176,8 +177,8 @@ class CreateLogRequest(BaseModel):
     source_system: str = Field(..., min_length=1, max_length=64)
     severity: str = Field(..., min_length=1, max_length=32)
     message: str = Field(..., min_length=1)
-    log_time: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    log_time: datetime | None = None
+    metadata: Dict[str, Any] | None = None
 
     @field_validator("log_type", "source_system", "severity", "message")
     @classmethod
@@ -201,4 +202,4 @@ class CreateLogResponse(BaseModel):
     severity: str
     message: str
     embedded: bool
-    embedding_error: Optional[str] = None
+    embedding_error: str | None = None

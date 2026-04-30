@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List
 
-
 # Domain context inserted into the system prompt
 DOMAIN_CONTEXT = "flight operations"
 
@@ -21,7 +20,7 @@ def _format_dt(value: Any) -> str:
 
 def format_evidence(evidence: List[Dict[str, Any]]) -> str:
     """Render evidence as a compact, ID-tagged block for the LLM.
-    
+
     Defines citation tag conventions: [log:<id>], [incident:<id>], [flight:<id>], [airport:<code>]
     """
     if not evidence:
@@ -33,26 +32,26 @@ def format_evidence(evidence: List[Dict[str, Any]]) -> str:
         if kind == "flight_log" or kind == "flight_logs":
             lines.append(
                 f"[log:{item['id']}] flight={item.get('flight_number') or item.get('flight_id')} "
-                f"{item.get('origin','?')}->{item.get('destination','?')} "
-                f"time={item.get('log_time','')} type={item.get('log_type','')} "
-                f"sev={item.get('severity','')} src={item.get('source_system','')} "
-                f"msg={item.get('message','')}"
+                f"{item.get('origin', '?')}->{item.get('destination', '?')} "
+                f"time={item.get('log_time', '')} type={item.get('log_type', '')} "
+                f"sev={item.get('severity', '')} src={item.get('source_system', '')} "
+                f"msg={item.get('message', '')}"
             )
         elif kind == "incident" or kind == "incidents":
             lines.append(
                 f"[incident:{item['id']}] flight={item.get('flight_number') or item.get('flight_id')} "
-                f"{item.get('origin','?')}->{item.get('destination','?')} "
-                f"time={item.get('incident_time','')} sev={item.get('severity','')} "
-                f"cat={item.get('category','')} status={item.get('resolution_status','')} "
-                f"msg={item.get('message','')}"
+                f"{item.get('origin', '?')}->{item.get('destination', '?')} "
+                f"time={item.get('incident_time', '')} sev={item.get('severity', '')} "
+                f"cat={item.get('category', '')} status={item.get('resolution_status', '')} "
+                f"msg={item.get('message', '')}"
             )
         elif kind == "flight" or kind == "flights":
             lines.append(
-                f"[flight:{item['id']}] {item.get('flight_number','')} "
-                f"{item.get('origin','?')}->{item.get('destination','?')} "
-                f"sched_dep={item.get('scheduled_departure','')} "
-                f"actual_dep={item.get('actual_departure','')} "
-                f"status={item.get('status','')}"
+                f"[flight:{item['id']}] {item.get('flight_number', '')} "
+                f"{item.get('origin', '?')}->{item.get('destination', '?')} "
+                f"sched_dep={item.get('scheduled_departure', '')} "
+                f"actual_dep={item.get('actual_departure', '')} "
+                f"status={item.get('status', '')}"
             )
         elif kind == "airport_delay_count":
             lines.append(

@@ -12,8 +12,8 @@ The pipeline is intentionally simple and synchronous: it is called from
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Callable, List, Optional
+from datetime import UTC, datetime
+from typing import Any, Callable, List
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,9 +44,7 @@ class IngestionResult:
         }
 
 
-def _select_unembedded(
-    session: Session, resource: EmbeddableResource, limit: int
-) -> List[Any]:
+def _select_unembedded(session: Session, resource: EmbeddableResource, limit: int) -> List[Any]:
     """Return up to `limit` items that have no embedding yet, oldest first."""
     if limit <= 0:
         return []
@@ -59,7 +57,7 @@ def _select_unembedded(
             resource.embedding_column,
         )
         return []
-    
+
     stmt = (
         select(resource.model)
         .where(embedding_col.is_(None))
@@ -71,10 +69,10 @@ def _select_unembedded(
 
 def ingest_unembedded(
     resource: EmbeddableResource,
-    limit: Optional[int] = None,
-    batch_size: Optional[int] = None,
-    client: Optional[EmbeddingClient] = None,
-    should_stop: Optional[Callable[[], bool]] = None,
+    limit: int | None = None,
+    batch_size: int | None = None,
+    client: EmbeddingClient | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> IngestionResult:
     """Embed up to `limit` items that currently have no embedding.
 
@@ -135,8 +133,8 @@ def ingest_unembedded(
                     result.errors.append(msg)
                     return result
 
-                now = datetime.now(timezone.utc)
-                for item, vector in zip(items, embed_result.embeddings):
+                now = datetime.now(UTC)
+                for item, vector in zip(items, embed_result.embeddings, strict=False):
                     setattr(item, resource.embedding_column, vector)
                     if resource.embedding_model_column:
                         setattr(item, resource.embedding_model_column, embed_result.model)
@@ -160,12 +158,12 @@ def ingest_unembedded(
 
 def ingest_all_for_domain(
     domain: DomainPack,
-    limit: Optional[int] = None,
-    batch_size: Optional[int] = None,
-    should_stop: Optional[Callable[[], bool]] = None,
+    limit: int | None = None,
+    batch_size: int | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> IngestionResult:
     """Ingest all embeddable resources for a domain.
-    
+
     Returns a combined IngestionResult across all resources.
     The limit is per-resource (each resource gets up to `limit` items embedded).
     """
@@ -188,10 +186,10 @@ def ingest_all_for_domain(
 
 
 def embed_item_by_id(
-    resource: "EmbeddableResource",
+    resource: EmbeddableResource,
     item_id: int,
-    client: Optional[EmbeddingClient] = None,
-) -> tuple[bool, Optional[str]]:
+    client: EmbeddingClient | None = None,
+) -> tuple[bool, str | None]:
     """Embed a single item of `resource` by primary-key id.
 
     Returns a ``(embedded, error)`` tuple:
@@ -229,8 +227,7 @@ def embed_item_by_id(
                     settings.embedding_dim,
                 )
                 return False, (
-                    f"embedding dimension mismatch ({embed_result.dim} != "
-                    f"{settings.embedding_dim})"
+                    f"embedding dimension mismatch ({embed_result.dim} != {settings.embedding_dim})"
                 )
             setattr(item, resource.embedding_column, embed_result.embeddings[0])
             if resource.embedding_model_column:
@@ -238,7 +235,7 @@ def embed_item_by_id(
             if resource.embedding_dim_column:
                 setattr(item, resource.embedding_dim_column, embed_result.dim)
             if resource.embedded_at_column:
-                setattr(item, resource.embedded_at_column, datetime.now(timezone.utc))
+                setattr(item, resource.embedded_at_column, datetime.now(UTC))
             return True, None
     finally:
         if owns_client:

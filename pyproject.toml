@@ -1,0 +1,88 @@
+# Repository-level Python tool configuration.
+#
+# This file is consumed by `ruff` (lint + format) and `mypy`, run from
+# pre-commit and (later) CI. Keep it conservative: Phase 0 establishes
+# a green baseline, not a strict bar. Tightening rules is a deliberate
+# follow-up in later phases.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+  "frontend",
+  "models/embedding/weights",
+  "models/generation/weights",
+  ".venv",
+  "build",
+  "dist",
+]
+
+[tool.ruff.lint]
+# A modest, pragmatic ruleset:
+#   E/W   pycodestyle errors and warnings
+#   F     pyflakes
+#   I     import sorting
+#   UP    pyupgrade
+#   B     flake8-bugbear
+# Anything stricter (security, naming, complexity) can land in a later
+# phase once the codebase has had a deliberate cleanup pass.
+select = ["E", "F", "I", "UP", "W", "B"]
+ignore = [
+  # Allow long lines in comments/strings — not worth fighting.
+  "E501",
+  # Don't force `dict` / `list` over `Dict` / `List` everywhere yet;
+  # the codebase mixes both intentionally.
+  "UP006",
+  "UP035",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# `__init__.py` files commonly re-export symbols.
+"**/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+# Phase 0 mypy is intentionally lenient: it should catch obvious typing
+# regressions in the new skeleton modules without blocking on the
+# pre-existing rich code from earlier prototyping. Stricter modes can
+# be opted into later via per-module overrides.
+python_version = "3.11"
+files = ["backend/app"]
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_ignores = false
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+strict_optional = false
+# SQLAlchemy 2.0 + Pydantic v2 emit complex types that confuse mypy
+# without dedicated plugins; keep them quiet for now.
+disable_error_code = [
+  "assignment",
+  "arg-type",
+  "return-value",
+  "attr-defined",
+  "var-annotated",
+  "misc",
+  "valid-type",
+  "call-arg",
+  "index",
+  "operator",
+  "union-attr",
+  "no-redef",
+  "type-arg",
+  "func-returns-value",
+  "call-overload",
+  "dict-item",
+  "list-item",
+  "name-defined",
+]
+
+[[tool.mypy.overrides]]
+module = ["app.*"]
+ignore_missing_imports = true

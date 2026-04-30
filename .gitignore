@@ -14,3 +14,7 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Node tool caches that may appear at the repo root (e.g. prettier
+# writes to `node_modules/.cache/prettier/` when it runs from here).
+node_modules/

@@ -17,7 +17,6 @@ from pathlib import Path
 
 from sentence_transformers import SentenceTransformer
 
-
 DEFAULT_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_OUTPUT_DIR = "/models/embedding"
 # Filename used to persist build-time provenance metadata next to the
@@ -66,4 +65,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Iterable, List, Sequence
 
 from sqlalchemy import func, select
@@ -49,43 +49,117 @@ AIRLINES: Sequence[tuple[str, str]] = (
 )
 
 AIRCRAFT_TYPES: Sequence[str] = (
-    "A320", "A321", "A330", "A350", "A380",
-    "B737", "B738", "B739", "B777", "B787",
-    "E190", "CRJ900",
+    "A320",
+    "A321",
+    "A330",
+    "A350",
+    "A380",
+    "B737",
+    "B738",
+    "B739",
+    "B777",
+    "B787",
+    "E190",
+    "CRJ900",
 )
 
 AIRPORTS: Sequence[str] = (
-    "LHR", "LGW", "JFK", "LAX", "ORD", "ATL", "DFW", "SFO",
-    "CDG", "AMS", "FRA", "MUC", "MAD", "FCO", "ZRH", "VIE",
-    "DXB", "DOH", "SIN", "HKG", "NRT", "HND", "SYD", "MEL",
-    "YYZ", "YVR", "MEX", "GRU", "EZE", "BOM", "DEL",
+    "LHR",
+    "LGW",
+    "JFK",
+    "LAX",
+    "ORD",
+    "ATL",
+    "DFW",
+    "SFO",
+    "CDG",
+    "AMS",
+    "FRA",
+    "MUC",
+    "MAD",
+    "FCO",
+    "ZRH",
+    "VIE",
+    "DXB",
+    "DOH",
+    "SIN",
+    "HKG",
+    "NRT",
+    "HND",
+    "SYD",
+    "MEL",
+    "YYZ",
+    "YVR",
+    "MEX",
+    "GRU",
+    "EZE",
+    "BOM",
+    "DEL",
 )
 
 FLIGHT_STATUSES: Sequence[str] = (
-    "scheduled", "departed", "arrived", "delayed", "cancelled", "diverted",
+    "scheduled",
+    "departed",
+    "arrived",
+    "delayed",
+    "cancelled",
+    "diverted",
 )
 
 LOG_TYPES: Sequence[str] = (
-    "operational", "maintenance", "safety", "weather", "atc", "passenger",
-    "crew", "cargo", "ground", "system",
+    "operational",
+    "maintenance",
+    "safety",
+    "weather",
+    "atc",
+    "passenger",
+    "crew",
+    "cargo",
+    "ground",
+    "system",
 )
 
 SOURCE_SYSTEMS: Sequence[str] = (
-    "ACARS", "FOC", "OPS_NOTES", "MX_LOG", "CREW_REPORT", "ATC_LOG", "SYSTEM_AUTO",
+    "ACARS",
+    "FOC",
+    "OPS_NOTES",
+    "MX_LOG",
+    "CREW_REPORT",
+    "ATC_LOG",
+    "SYSTEM_AUTO",
 )
 
 SEVERITIES: Sequence[str] = ("info", "low", "warning", "critical")
 SEVERITY_WEIGHTS: Sequence[int] = (60, 20, 15, 5)
 
 INCIDENT_CATEGORIES: Sequence[str] = (
-    "weather", "maintenance", "engine", "hydraulic", "avionics",
-    "crew", "passenger", "ATC", "runway", "gate", "fuelling",
-    "de-icing", "turbulence", "security", "medical", "baggage",
-    "catering", "cleaning", "false alarm",
+    "weather",
+    "maintenance",
+    "engine",
+    "hydraulic",
+    "avionics",
+    "crew",
+    "passenger",
+    "ATC",
+    "runway",
+    "gate",
+    "fuelling",
+    "de-icing",
+    "turbulence",
+    "security",
+    "medical",
+    "baggage",
+    "catering",
+    "cleaning",
+    "false alarm",
 )
 
 RESOLUTION_STATUSES: Sequence[str] = (
-    "open", "investigating", "resolved", "closed", "monitoring",
+    "open",
+    "investigating",
+    "resolved",
+    "closed",
+    "monitoring",
 )
 
 # Pool of realistic, deliberately messy log messages.
@@ -203,9 +277,7 @@ def _generate_flight_row(rng: random.Random, now: datetime) -> dict:
     actual_arr: datetime | None
     if status in {"arrived", "departed", "diverted"}:
         actual_dep = _maybe_jitter(rng, sched_dep, 60)
-        actual_arr = (
-            _maybe_jitter(rng, sched_arr, 60) if status == "arrived" else None
-        )
+        actual_arr = _maybe_jitter(rng, sched_arr, 60) if status == "arrived" else None
     elif status == "delayed":
         actual_dep = sched_dep + timedelta(minutes=rng.randint(20, 240))
         actual_arr = None
@@ -240,8 +312,19 @@ def _generate_log_row(rng: random.Random, flight: Flight) -> dict:
     source = rng.choice(SOURCE_SYSTEMS)
 
     metadata = {
-        "phase": rng.choice(["pre-flight", "taxi", "takeoff", "climb", "cruise",
-                             "descent", "approach", "landing", "post-flight"]),
+        "phase": rng.choice(
+            [
+                "pre-flight",
+                "taxi",
+                "takeoff",
+                "climb",
+                "cruise",
+                "descent",
+                "approach",
+                "landing",
+                "post-flight",
+            ]
+        ),
         "auto_generated": rng.random() < 0.4,
     }
     if rng.random() < 0.2:
@@ -263,9 +346,7 @@ def _generate_log_row(rng: random.Random, flight: Flight) -> dict:
 def _generate_incident_row(rng: random.Random, flight: Flight) -> dict:
     base = flight.scheduled_departure
     incident_time = base + timedelta(minutes=rng.randint(-10, 8 * 60))
-    severity = _weighted_choice(
-        rng, ("low", "warning", "critical"), (50, 35, 15)
-    )
+    severity = _weighted_choice(rng, ("low", "warning", "critical"), (50, 35, 15))
     category = rng.choice(INCIDENT_CATEGORIES)
     description = (
         f"{category.title()} event reported on flight {flight.flight_number} "
@@ -322,7 +403,7 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 1337) ->
         return {"flights": 0, "flight_logs": 0, "incidents": 0, "skipped": True}
 
     rng = random.Random(seed)
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
 
     # ---- flights ---------------------------------------------------------
     flight_count = max(0, settings.seed_flight_count)
@@ -331,7 +412,9 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 1337) ->
 
     logger.info(
         "Seeding %d flights, %d logs, %d incidents…",
-        flight_count, log_count, incident_count,
+        flight_count,
+        log_count,
+        incident_count,
     )
 
     flight_rows = (_generate_flight_row(rng, now) for _ in range(flight_count))
@@ -375,7 +458,9 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 1337) ->
 
     logger.info(
         "Seed complete: flights=%d logs=%d incidents=%d",
-        inserted_flights, inserted_logs, inserted_incidents,
+        inserted_flights,
+        inserted_logs,
+        inserted_incidents,
     )
 
     return {

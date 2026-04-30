@@ -1,0 +1,110 @@
+# Pre-commit hook configuration for raggo (Phase 0).
+#
+# Required hooks: ruff (lint+format), mypy, eslint, prettier,
+# shellcheck, gitleaks. All hooks must pass on a clean checkout —
+# `pre-commit run --all-files` should exit 0 immediately after `git
+# clone` with no extra setup beyond `pip install pre-commit`.
+#
+# Frontend hooks (eslint, prettier) use pre-commit's bundled node
+# environments via `mirrors-eslint` / `mirrors-prettier` and declare
+# their dependencies through `additional_dependencies`, so they do not
+# require `npm install` inside `frontend/` to run from pre-commit.
+
+default_language_version:
+  python: python3
+
+# Global excludes that apply to every hook. node_modules and lockfiles
+# never benefit from being touched by hooks even when they happen to
+# exist locally (they are gitignored but pre-commit may still see
+# scratch caches like node_modules/.cache/prettier/).
+exclude: |
+  (?x)^(
+    .*/node_modules/.*|
+    frontend/dist/.*|
+    frontend/\.vite/.*|
+    frontend/package-lock\.json|
+    models/.*/weights/.*
+  )$
+
+repos:
+  # ----- General hygiene -------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+        exclude: ^(helm/.*/templates/|airgap-bundle/)
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # ----- Python: ruff (lint + format) ------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # ----- Python: mypy ----------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        args: ["--config-file=pyproject.toml"]
+        files: ^backend/app/
+        # Avoid the network install of every transitive type stub on
+        # each run; mypy is configured to ignore missing imports in
+        # `pyproject.toml`.
+        additional_dependencies: []
+
+  # ----- Frontend: prettier ---------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        files: ^frontend/.*\.(ts|tsx|js|jsx|json|css|md|html)$
+        exclude: ^frontend/(node_modules|dist|\.vite)/
+
+  # ----- Shell: shellcheck ----------------------------------------------
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+
+  # ----- Secrets: gitleaks ----------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # ----- Frontend: eslint (self-contained via pre-commit node env) ------
+  # ESLint 8 is intentional: the `.eslintrc.json` legacy config format
+  # is still required because ESLint 9's flat config is a breaking
+  # change we don't take on in Phase 0.
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v8.56.0
+    hooks:
+      - id: eslint
+        files: ^frontend/.*\.(ts|tsx|js|jsx)$
+        exclude: ^frontend/(node_modules|dist|\.vite)/|^frontend/vite\.config\.ts$
+        types: [file]
+        args:
+          - "--config"
+          - "frontend/.eslintrc.json"
+          - "--no-eslintrc"
+          - "--resolve-plugins-relative-to"
+          - "frontend"
+          - "--max-warnings=0"
+        additional_dependencies:
+          - eslint@8.56.0
+          - "@typescript-eslint/eslint-plugin@7.18.0"
+          - "@typescript-eslint/parser@7.18.0"
+          - eslint-plugin-react@7.37.2
+          - eslint-plugin-react-hooks@4.6.2
+          - eslint-config-prettier@9.1.0
+          - typescript@5.5.4

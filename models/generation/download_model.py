@@ -21,7 +21,6 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-
 DEFAULT_MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
 DEFAULT_OUTPUT_DIR = "/models/generation"
 # Filename used to persist build-time provenance metadata next to the
@@ -50,9 +49,7 @@ ALLOW_PATTERNS = [
 
 def main() -> int:
     model_name = os.environ.get("GENERATION_MODEL_NAME", DEFAULT_MODEL_NAME)
-    output_dir = Path(
-        os.environ.get("GENERATION_MODEL_DIR", DEFAULT_OUTPUT_DIR)
-    )
+    output_dir = Path(os.environ.get("GENERATION_MODEL_DIR", DEFAULT_OUTPUT_DIR))
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,9 +79,7 @@ def main() -> int:
         )
         return 1
 
-    weight_files = list(output_dir.glob("*.safetensors")) + list(
-        output_dir.glob("*.bin")
-    )
+    weight_files = list(output_dir.glob("*.safetensors")) + list(output_dir.glob("*.bin"))
     if not weight_files:
         print(
             f"[download_model] ERROR: no weight files (*.safetensors / *.bin) "
@@ -101,9 +96,7 @@ def main() -> int:
         "model_name": model_name,
         "engine": "transformers",
     }
-    (output_dir / METADATA_FILENAME).write_text(
-        json.dumps(metadata, indent=2)
-    )
+    (output_dir / METADATA_FILENAME).write_text(json.dumps(metadata, indent=2))
 
     print(f"[download_model] Done. metadata={metadata}", flush=True)
     return 0

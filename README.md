@@ -226,7 +226,7 @@ backend/app/domains/
   ```json
   { "question": "Show me critical open tickets" }
   ```
-  
+
   Returns:
   ```json
   {
@@ -386,10 +386,35 @@ This clears all data, re-runs init.sql, and re-seeds.
 ├── models/
 │   ├── embedding/             # Sentence-transformers service
 │   └── generation/            # Hugging Face generation service
+├── helm/                      # (Phase 4) raggo Helm chart
+├── airgap-bundle/             # (Phase 5) offline release bundle
+├── docs/                      # Long-form docs
+├── .github/workflows/         # (Phase 2+) CI workflows
 ├── docker-compose.yml
 ├── docker-compose.gpu.yml
 └── .env.example
 ```
+
+### Pre-commit hooks
+
+The repo uses [`pre-commit`](https://pre-commit.com/) to run `ruff` (lint
++ format), `mypy`, `eslint`, `prettier`, `shellcheck`, and `gitleaks` on
+every commit. To install once:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+To run all hooks against the whole tree:
+
+```bash
+pre-commit run --all-files
+```
+
+All hook environments (including the Node tooling for `eslint` and
+`prettier`) are installed by `pre-commit` itself — no `npm install` is
+required just to run the hooks.
 
 ### Running tests
 

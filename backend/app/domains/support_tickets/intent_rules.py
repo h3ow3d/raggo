@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Tuple
 
 from app.core.agent.intent import IntentPlan
 from app.core.domain import IntentRule
@@ -20,15 +20,13 @@ _RECENT_RE = re.compile(
 )
 
 
-def _recent_window(question: str) -> Tuple[Optional[datetime], Optional[datetime]]:
+def _recent_window(question: str) -> Tuple[datetime | None, datetime | None]:
     """Return a (start, end) window when the question is time-scoped."""
     if not _RECENT_RE.search(question):
         return None, None
 
-    now = datetime.now(timezone.utc)
-    m = re.search(
-        r"last\s+(\d+)?\s*(day|days|week|weeks)", question, re.IGNORECASE
-    )
+    now = datetime.now(UTC)
+    m = re.search(r"last\s+(\d+)?\s*(day|days|week|weeks)", question, re.IGNORECASE)
     if m:
         n = int(m.group(1) or 1)
         unit = m.group(2).lower()
@@ -52,9 +50,7 @@ def _open_tickets_plan(question: str) -> IntentPlan:
     start, end = _recent_window(question)
     return IntentPlan(
         strategy="sql_only",
-        sql_calls=[
-            ("get_open_tickets", {"start_time": start, "end_time": end, "limit": 10})
-        ],
+        sql_calls=[("get_open_tickets", {"start_time": start, "end_time": end, "limit": 10})],
         notes="open tickets overview",
     )
 
@@ -68,7 +64,10 @@ def _high_priority_plan(question: str) -> IntentPlan:
     return IntentPlan(
         strategy="vector_and_sql",
         sql_calls=[
-            ("get_tickets_by_priority", {"priority": "critical", "start_time": start, "end_time": end, "limit": 10})
+            (
+                "get_tickets_by_priority",
+                {"priority": "critical", "start_time": start, "end_time": end, "limit": 10},
+            )
         ],
         vector_query=question,
         notes="critical/urgent tickets with evidence",

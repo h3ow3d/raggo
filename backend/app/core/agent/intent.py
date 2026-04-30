@@ -7,7 +7,7 @@ that applies a sequence of IntentRule patterns.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from app.core.domain import IntentRule
 
@@ -41,15 +41,15 @@ class IntentPlan:
 
     strategy: str
     sql_calls: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
-    vector_query: Optional[str] = None
-    vector_filters: Optional[Dict[str, Any]] = None
-    vector_resource: Optional[str] = None
+    vector_query: str | None = None
+    vector_filters: Dict[str, Any] | None = None
+    vector_resource: str | None = None
     notes: str = ""
 
 
 class RuleBasedIntentClassifier:
     """Deterministic intent classifier using keyword/regex rules.
-    
+
     Applies rules in order; the first matching rule's plan is returned.
     If no rule matches, the default_plan is used.
     """
@@ -60,7 +60,7 @@ class RuleBasedIntentClassifier:
         default_plan: Callable[[str], IntentPlan],
     ):
         """Initialize the classifier.
-        
+
         Parameters
         ----------
         rules : tuple[IntentRule, ...]
@@ -73,12 +73,12 @@ class RuleBasedIntentClassifier:
 
     def classify(self, question: str) -> IntentPlan:
         """Classify a question and return an IntentPlan.
-        
+
         Parameters
         ----------
         question : str
             User question.
-        
+
         Returns
         -------
         IntentPlan

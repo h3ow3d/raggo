@@ -6,12 +6,12 @@ Exports DOMAIN, a complete DomainPack instance for customer support ticket opera
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.domain import DomainPack, DisplayMetadata, EmbeddableResource, FilterSpec
+from app.core.domain import DisplayMetadata, DomainPack, EmbeddableResource, FilterSpec
 from app.domains.support_tickets.intent_rules import INTENT_RULES, default_plan
 from app.domains.support_tickets.models import Base, SupportTicket, TicketMessage
 from app.domains.support_tickets.prompts import DOMAIN_CONTEXT, format_evidence
@@ -45,10 +45,12 @@ TICKET_MESSAGES_RESOURCE = EmbeddableResource(
     embedding_model_column="embedding_model",
     embedding_dim_column="embedding_dim",
     embedded_at_column="embedded_at",
-    filter_spec=FilterSpec(columns={
-        "author": "author",
-        "ticket_id": "ticket_id",
-    }),
+    filter_spec=FilterSpec(
+        columns={
+            "author": "author",
+            "ticket_id": "ticket_id",
+        }
+    ),
     evidence_projection=_ticket_message_evidence_projection,
     joins=(
         # Join to SupportTicket to include ticket context in evidence
@@ -68,12 +70,9 @@ def _stats(session: Session) -> Dict[str, int]:
         or 0
     )
     critical_tickets = (
-        session.scalar(
-            select(func.count()).where(SupportTicket.priority == "critical")
-        )
-        or 0
+        session.scalar(select(func.count()).where(SupportTicket.priority == "critical")) or 0
     )
-    
+
     return {
         "total_tickets": int(total_tickets),
         "total_messages": int(total_messages),

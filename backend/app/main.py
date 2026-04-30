@@ -25,14 +25,13 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, Dict, List
-
-from datetime import datetime, timezone
 
 import anyio
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, inspect, or_, select, text
+from sqlalchemy import inspect, or_, select, text
 from sqlalchemy.exc import OperationalError
 
 from app.core.agent import orchestrator
@@ -98,31 +97,32 @@ def _run_init_sql_if_needed(domain: DomainPack) -> None:
     if not domain.embeddable_resources:
         logger.info("No embeddable resources in domain; skipping init.sql check.")
         return
-    
+
     # Check first resource's table
     first_resource = domain.embeddable_resources[0]
     table_name = first_resource.model.__tablename__
-    
+
     if _table_exists(table_name):
         logger.info("Domain table '%s' exists; skipping init.sql.", table_name)
         return
-    
+
     from pathlib import Path as _Path
+
     init_sql_path = _Path(domain.init_sql_path) if domain.init_sql_path else None
     if init_sql_path is None or not init_sql_path.exists():
         logger.warning("Domain init.sql not found at %s", domain.init_sql_path)
         return
-    
+
     logger.info("Running domain init.sql from %s…", init_sql_path)
     sql_content = init_sql_path.read_text()
-    
+
     # Execute the whole file in one go. Splitting on ';' is unsafe because
     # PL/pgSQL DO blocks (used for conditional index creation) contain
     # semicolons inside `$$ ... $$` quoted bodies. psycopg supports
     # multi-statement scripts via `exec_driver_sql`.
     with engine.begin() as conn:
         conn.exec_driver_sql(sql_content)
-    
+
     logger.info("Domain init.sql executed successfully.")
 
 
@@ -141,11 +141,11 @@ async def lifespan(app: FastAPI):
     # Load domain on startup
     settings = get_settings()
     domain_name = settings.raggo_domain
-    
+
     def _startup() -> DomainPack:
         _wait_for_database()
         _ensure_pgvector_extension()
-        
+
         # Load domain
         logger.info("Loading domain: %s", domain_name)
         domain = load_domain(domain_name)
@@ -155,18 +155,18 @@ async def lifespan(app: FastAPI):
             domain.display.version,
             domain.display.description,
         )
-        
+
         # Initialize domain schema and seed
         _run_init_sql_if_needed(domain)
         _run_startup_seed(domain)
-        
+
         return domain
-    
+
     domain = await anyio.to_thread.run_sync(_startup)
-    
+
     # Store domain on app.state for request handlers
     app.state.domain = domain
-    
+
     # Kick off background ingestion
     stop_event = threading.Event()
     ingest_task = asyncio.create_task(_run_startup_ingestion(domain, stop_event))
@@ -177,7 +177,7 @@ async def lifespan(app: FastAPI):
         if not ingest_task.done():
             try:
                 await asyncio.wait_for(asyncio.shield(ingest_task), timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            except (TimeoutError, asyncio.CancelledError, Exception):
                 pass
 
 
@@ -187,7 +187,7 @@ async def _run_startup_ingestion(domain: DomainPack, stop_event: threading.Event
     if settings.startup_ingest_limit <= 0:
         logger.info("Startup ingestion disabled (STARTUP_INGEST_LIMIT<=0).")
         return
-    
+
     def _do_ingest() -> Dict[str, Any]:
         return ingest_all_for_domain(
             domain=domain,
@@ -195,7 +195,7 @@ async def _run_startup_ingestion(domain: DomainPack, stop_event: threading.Event
             batch_size=settings.ingest_batch_size,
             should_stop=stop_event.is_set,
         )
-    
+
     logger.info(
         "Starting bounded startup ingestion (limit=%d, batch_size=%d)…",
         settings.startup_ingest_limit,
@@ -326,28 +326,30 @@ async def ingest(request: IngestRequest | None = None) -> IngestResponse:
 async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
     """Embed query and return most similar items from specified resource."""
     domain: DomainPack = app.state.domain
-    
+
     # Find resource by name (default to first resource if not specified)
     resource = None
-    resource_name = request.resource or (domain.embeddable_resources[0].name if domain.embeddable_resources else None)
-    
+    resource_name = request.resource or (
+        domain.embeddable_resources[0].name if domain.embeddable_resources else None
+    )
+
     if resource_name is None:
         raise HTTPException(
             status_code=400,
             detail="No embeddable resources available in domain.",
         )
-    
+
     for r in domain.embeddable_resources:
         if r.name == resource_name:
             resource = r
             break
-    
+
     if resource is None:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown resource: {resource_name}. Available: {[r.name for r in domain.embeddable_resources]}",
         )
-    
+
     def _run() -> List[Dict[str, Any]]:
         with session_scope() as session:
             return search(
@@ -357,14 +359,14 @@ async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
                 top_k=request.top_k,
                 filters=request.filters,
             )
-    
+
     try:
         rows = await anyio.to_thread.run_sync(_run)
     except VectorSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VectorSearchDependencyError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    
+
     return VectorSearchResponse(
         query=request.query,
         resource=resource_name,
@@ -376,14 +378,14 @@ async def search_vector(request: VectorSearchRequest) -> VectorSearchResponse:
 @app.post("/query", response_model=QueryResponse)
 async def query(request: QueryRequest) -> QueryResponse:
     """Run the RAG agent on a question using the current domain.
-    
+
     The agent classifies intent, selects safe SQL tools and/or vector
     search, retrieves evidence, and asks the local generation model for
     a grounded answer. The model never executes arbitrary SQL — only
     allowlisted, parameterised tools are used.
     """
     domain: DomainPack = app.state.domain
-    
+
     def _run() -> orchestrator.AgentResult:
         with session_scope() as session:
             return orchestrator.run(
@@ -392,12 +394,12 @@ async def query(request: QueryRequest) -> QueryResponse:
                 question=request.question,
                 top_k=request.top_k,
             )
-    
+
     try:
         result = await anyio.to_thread.run_sync(_run)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    
+
     return QueryResponse(
         answer=result.answer,
         evidence=result.evidence,
@@ -485,7 +487,7 @@ async def create_log(request: CreateLogRequest) -> CreateLogResponse:
             detail=f"severity must be one of {sorted(_VALID_LOG_SEVERITIES)}",
         )
 
-    log_time = request.log_time or datetime.now(timezone.utc)
+    log_time = request.log_time or datetime.now(UTC)
 
     def _create() -> int:
         with session_scope() as session:

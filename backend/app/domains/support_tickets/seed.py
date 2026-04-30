@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Iterable, List, Sequence
 
 from sqlalchemy import func, select
@@ -35,10 +35,18 @@ STATUS_WEIGHTS: Sequence[int] = (25, 20, 35, 20)
 AUTHORS: Sequence[str] = ("customer", "agent", "system")
 
 CUSTOMERS: Sequence[str] = (
-    "alice@example.com", "bob@example.com", "charlie@example.com",
-    "diana@example.com", "eve@example.com", "frank@example.com",
-    "grace@example.com", "henry@example.com", "iris@example.com",
-    "jack@example.com", "karen@example.com", "leo@example.com",
+    "alice@example.com",
+    "bob@example.com",
+    "charlie@example.com",
+    "diana@example.com",
+    "eve@example.com",
+    "frank@example.com",
+    "grace@example.com",
+    "henry@example.com",
+    "iris@example.com",
+    "jack@example.com",
+    "karen@example.com",
+    "leo@example.com",
 )
 
 # Realistic subject pool
@@ -124,15 +132,15 @@ def _weighted_choice(rng: random.Random, options: Sequence[str], weights: Sequen
 def _generate_ticket_row(rng: random.Random, now: datetime) -> dict:
     offset_days = rng.uniform(-90, 0)
     opened_at = now + timedelta(days=offset_days, hours=rng.randint(0, 23))
-    
+
     priority = _weighted_choice(rng, PRIORITIES, PRIORITY_WEIGHTS)
     status = _weighted_choice(rng, STATUSES, STATUS_WEIGHTS)
-    
+
     closed_at = None
     if status in {"resolved", "closed"}:
         # Close 1-30 days after opening
         closed_at = opened_at + timedelta(days=rng.uniform(0.1, 30))
-    
+
     return {
         "subject": rng.choice(SUBJECTS),
         "priority": priority,
@@ -147,10 +155,10 @@ def _generate_message_row(rng: random.Random, ticket: SupportTicket) -> dict:
     # First message is usually from customer, then alternates
     offset_hours = rng.uniform(0, 24 * 5)  # Messages within 5 days of ticket opening
     message_time = ticket.opened_at + timedelta(hours=offset_hours)
-    
+
     author = _weighted_choice(rng, AUTHORS, (50, 40, 10))
     body = rng.choice(MESSAGE_BODIES)
-    
+
     return {
         "ticket_id": ticket.id,
         "author": author,
@@ -190,13 +198,17 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 42) -> d
         return {"tickets": 0, "messages": 0, "skipped": True}
 
     rng = random.Random(seed)
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
 
     # Default: ~200 tickets, ~1000 messages
     ticket_count = 200
     avg_messages_per_ticket = 5
 
-    logger.info("Seeding %d tickets with ~%d messages...", ticket_count, ticket_count * avg_messages_per_ticket)
+    logger.info(
+        "Seeding %d tickets with ~%d messages...",
+        ticket_count,
+        ticket_count * avg_messages_per_ticket,
+    )
 
     ticket_rows = (_generate_ticket_row(rng, now) for _ in range(ticket_count))
     inserted_tickets = _bulk_insert(session, SupportTicket, ticket_rows)
@@ -215,7 +227,7 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 42) -> d
     def _message_iter():
         for ticket_id, opened_at in tickets:
             # Create a minimal ticket object for _generate_message_row
-            ticket_obj = type('obj', (object,), {'id': ticket_id, 'opened_at': opened_at})()
+            ticket_obj = type("obj", (object,), {"id": ticket_id, "opened_at": opened_at})()
             num_messages = rng.randint(1, 10)
             for _ in range(num_messages):
                 yield _generate_message_row(rng, ticket_obj)
@@ -224,7 +236,8 @@ def seed_database(session: Session, *, force: bool = False, seed: int = 42) -> d
 
     logger.info(
         "Seed complete: tickets=%d messages=%d",
-        inserted_tickets, inserted_messages,
+        inserted_tickets,
+        inserted_messages,
     )
 
     return {

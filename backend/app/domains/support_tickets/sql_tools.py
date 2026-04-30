@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
@@ -20,7 +20,7 @@ ALLOWED_PRIORITIES: frozenset[str] = frozenset({"low", "medium", "high", "critic
 ALLOWED_STATUSES: frozenset[str] = frozenset({"open", "in_progress", "resolved", "closed"})
 
 
-def _clamp_limit(limit: Optional[int]) -> int:
+def _clamp_limit(limit: int | None) -> int:
     if limit is None:
         return DEFAULT_LIMIT
     if limit < 1:
@@ -48,7 +48,7 @@ def _serialise_ticket(ticket: SupportTicket) -> Dict[str, Any]:
     }
 
 
-def _serialise_message(msg: TicketMessage, ticket: Optional[SupportTicket] = None) -> Dict[str, Any]:
+def _serialise_message(msg: TicketMessage, ticket: SupportTicket | None = None) -> Dict[str, Any]:
     row: Dict[str, Any] = {
         "id": msg.id,
         "ticket_id": msg.ticket_id,
@@ -66,27 +66,27 @@ def _serialise_message(msg: TicketMessage, ticket: Optional[SupportTicket] = Non
 
 
 class GetOpenTicketsArgs(BaseModel):
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetTicketsByPriorityArgs(BaseModel):
     priority: str
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetMessagesByTicketArgs(BaseModel):
     ticket_id: int = Field(..., ge=1)
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 class GetTopPriorityCountsArgs(BaseModel):
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    limit: Optional[int] = Field(default=None, ge=1, le=MAX_LIMIT)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    limit: int | None = Field(default=None, ge=1, le=MAX_LIMIT)
 
 
 # Tool implementations
@@ -94,21 +94,19 @@ class GetTopPriorityCountsArgs(BaseModel):
 
 def get_open_tickets(
     session: Session,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return tickets with status 'open' or 'in_progress'."""
     eff_limit = _clamp_limit(limit)
-    
-    stmt = select(SupportTicket).where(
-        SupportTicket.status.in_({"open", "in_progress"})
-    )
+
+    stmt = select(SupportTicket).where(SupportTicket.status.in_({"open", "in_progress"}))
     if start_time is not None:
         stmt = stmt.where(SupportTicket.opened_at >= start_time)
     if end_time is not None:
         stmt = stmt.where(SupportTicket.opened_at <= end_time)
-    
+
     stmt = stmt.order_by(desc(SupportTicket.opened_at)).limit(eff_limit)
     rows = session.execute(stmt).scalars().all()
     return [_serialise_ticket(t) for t in rows]
@@ -117,24 +115,24 @@ def get_open_tickets(
 def get_tickets_by_priority(
     session: Session,
     priority: str,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return tickets matching a specific priority."""
     if priority not in ALLOWED_PRIORITIES:
         raise ValueError(
             f"unsupported priority: {priority!r}. Allowed: {sorted(ALLOWED_PRIORITIES)}"
         )
-    
+
     eff_limit = _clamp_limit(limit)
-    
+
     stmt = select(SupportTicket).where(SupportTicket.priority == priority)
     if start_time is not None:
         stmt = stmt.where(SupportTicket.opened_at >= start_time)
     if end_time is not None:
         stmt = stmt.where(SupportTicket.opened_at <= end_time)
-    
+
     stmt = stmt.order_by(desc(SupportTicket.opened_at)).limit(eff_limit)
     rows = session.execute(stmt).scalars().all()
     return [_serialise_ticket(t) for t in rows]
@@ -143,7 +141,7 @@ def get_tickets_by_priority(
 def get_messages_by_ticket(
     session: Session,
     ticket_id: int,
-    limit: Optional[int] = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return messages for a given ticket."""
     try:
@@ -152,9 +150,9 @@ def get_messages_by_ticket(
         raise ValueError("ticket_id must be a positive integer") from exc
     if ticket_id_int <= 0:
         raise ValueError("ticket_id must be a positive integer")
-    
+
     eff_limit = _clamp_limit(limit)
-    
+
     stmt = (
         select(TicketMessage, SupportTicket)
         .join(SupportTicket, SupportTicket.id == TicketMessage.ticket_id)
@@ -162,20 +160,18 @@ def get_messages_by_ticket(
         .order_by(TicketMessage.created_at.asc())
         .limit(eff_limit)
     )
-    return [
-        _serialise_message(msg, ticket) for msg, ticket in session.execute(stmt).all()
-    ]
+    return [_serialise_message(msg, ticket) for msg, ticket in session.execute(stmt).all()]
 
 
 def get_top_priority_counts(
     session: Session,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: Optional[int] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Return ticket counts grouped by priority."""
     eff_limit = _clamp_limit(limit)
-    
+
     stmt = select(
         SupportTicket.priority,
         func.count().label("count"),
@@ -184,16 +180,11 @@ def get_top_priority_counts(
         stmt = stmt.where(SupportTicket.opened_at >= start_time)
     if end_time is not None:
         stmt = stmt.where(SupportTicket.opened_at <= end_time)
-    
-    stmt = (
-        stmt.group_by(SupportTicket.priority)
-        .order_by(func.count().desc())
-        .limit(eff_limit)
-    )
-    
+
+    stmt = stmt.group_by(SupportTicket.priority).order_by(func.count().desc()).limit(eff_limit)
+
     return [
-        {"priority": row.priority, "count": int(row.count)}
-        for row in session.execute(stmt).all()
+        {"priority": row.priority, "count": int(row.count)} for row in session.execute(stmt).all()
     ]
 
 

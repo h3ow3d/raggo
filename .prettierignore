@@ -1,0 +1,9 @@
+# Files and directories prettier should not touch.
+**/node_modules/**
+**/dist/**
+**/build/**
+**/.vite/**
+package-lock.json
+frontend/package-lock.json
+models/**/weights/**
+.git/**

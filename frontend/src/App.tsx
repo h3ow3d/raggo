@@ -1,8 +1,8 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
-import Dashboard from "./pages/Dashboard";
-import AddLog from "./pages/AddLog";
-import VectorSearch from "./pages/VectorSearch";
-import AgentChat from "./pages/AgentChat";
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import Dashboard from './pages/Dashboard';
+import AddLog from './pages/AddLog';
+import VectorSearch from './pages/VectorSearch';
+import AgentChat from './pages/AgentChat';
 
 export default function App() {
   return (

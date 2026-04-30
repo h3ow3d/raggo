@@ -16,23 +16,24 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
 class FilterSpec:
     """Whitelisted filter columns for an embeddable resource.
-    
+
     Maps user-facing filter keys to ORM column attribute names.
     Example: {"severity": "severity", "flight_id": "flight_id"}
     """
+
     columns: dict[str, str]
 
 
 @dataclass(frozen=True)
 class EmbeddableResource:
     """Configuration for a single embeddable table/resource in the domain.
-    
+
     Attributes
     ----------
     name : str
@@ -59,6 +60,7 @@ class EmbeddableResource:
         on_clause_factory is a callable(resource_model, joined_model) -> clause.
         Example: (Flight, lambda log, flt: flt.id == log.flight_id)
     """
+
     name: str
     model: type
     text_column: str
@@ -74,7 +76,7 @@ class EmbeddableResource:
 @dataclass(frozen=True)
 class SafeSqlTool:
     """A safe, parameterised SQL query exposed to the agent.
-    
+
     Attributes
     ----------
     name : str
@@ -90,6 +92,7 @@ class SafeSqlTool:
     description : str
         Human-readable summary of what the tool does (for documentation).
     """
+
     name: str
     func: Callable[..., list[dict]]
     args_model: type  # Pydantic BaseModel
@@ -100,7 +103,7 @@ class SafeSqlTool:
 @dataclass(frozen=True)
 class IntentRule:
     """A pattern-matching rule for intent classification.
-    
+
     Attributes
     ----------
     matches : Callable[[str], bool]
@@ -109,6 +112,7 @@ class IntentRule:
     plan : Callable[[str], IntentPlan]
         Builds an IntentPlan from the question when this rule matches.
     """
+
     matches: Callable[[str], bool]
     plan: Callable[[str], Any]  # returns IntentPlan from core.agent.intent
 
@@ -116,7 +120,7 @@ class IntentRule:
 @dataclass(frozen=True)
 class DisplayMetadata:
     """UI/display configuration for a domain.
-    
+
     Attributes
     ----------
     domain_name : str
@@ -137,6 +141,7 @@ class DisplayMetadata:
     form_schema : dict | None
         Optional JSON Schema for a "create item" form. Not used in MVP.
     """
+
     domain_name: str
     title: str
     record_label_singular: str
@@ -150,7 +155,7 @@ class DisplayMetadata:
 @dataclass(frozen=True)
 class DomainPack:
     """Complete domain configuration bundle.
-    
+
     Attributes
     ----------
     name : str
@@ -181,6 +186,7 @@ class DomainPack:
     display : DisplayMetadata
         UI-facing metadata for dashboards and forms.
     """
+
     name: str
     sqlalchemy_base: type
     init_sql_path: str
@@ -196,23 +202,23 @@ class DomainPack:
     # Optional domain-supplied default intent plan. When present, the
     # agent orchestrator uses it instead of the built-in vector-only
     # fallback. Receives the user question and returns an `IntentPlan`.
-    default_intent_plan: Optional[Callable[[str], Any]] = None
+    default_intent_plan: Callable[[str], Any] | None = None
 
 
 def load_domain(name: str) -> DomainPack:
     """Load a domain pack by name.
-    
+
     Parameters
     ----------
     name : str
         Domain name matching the module under app.domains.
         Example: "flights" loads app.domains.flights
-    
+
     Returns
     -------
     DomainPack
         The loaded domain configuration.
-    
+
     Raises
     ------
     ImportError
