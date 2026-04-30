@@ -5,6 +5,16 @@ __pycache__/
 .venv/
 .env
 
+# Test / coverage artefacts (Phase 2 CI writes these into the repo
+# root when run locally).
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # OS / editor
 .DS_Store
 .vscode/
@@ -14,6 +24,7 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/coverage/
 
 # Node tool caches that may appear at the repo root (e.g. prettier
 # writes to `node_modules/.cache/prettier/` when it runs from here).

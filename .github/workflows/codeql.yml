@@ -1,0 +1,69 @@
+# CodeQL — Phase 2 (scheduled, non-gating).
+#
+# Scans Python and JavaScript/TypeScript on a weekly cadence. Findings
+# are reported to the repository Security tab; this workflow is
+# intentionally NOT a required check for branch protection in Phase 2.
+# Phase 6 promotes CodeQL to a per-PR gate alongside the rest of the
+# release pipeline.
+#
+# Triggers:
+#   - schedule  : weekly Monday 06:00 UTC
+#   - workflow_dispatch : manual on-demand runs
+#   - push to default branch : keeps baseline results fresh so PRs in
+#     Phase 6 can compare against an up-to-date baseline.
+
+name: codeql
+
+on:
+  schedule:
+    # Weekly, Monday 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/codeql.yml"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # CodeQL splits TypeScript and JavaScript into a single
+        # `javascript-typescript` language as of v3.
+        language:
+          - python
+          - javascript-typescript
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use the security-extended pack for slightly stricter
+          # default queries; security-and-quality is heavier and Phase
+          # 6 can revisit.
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

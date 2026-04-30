@@ -1,0 +1,317 @@
+# Phase 2 — Core CI (per-PR quality gates).
+#
+# Runs on every pull request and every push to the default branch.
+# Goal: a PR fails in under ten minutes if it breaks lint, types,
+# tests, Compose validity, shell hygiene, commits a secret, or has a
+# non-Conventional-Commits message.
+#
+# Jobs:
+#   - backend           : ruff + mypy + pytest (coverage) against postgres+pgvector
+#   - frontend          : eslint + tsc --noEmit + vitest + npm audit (advisory)
+#   - compose-validate  : `docker compose config` for default and GPU overlays
+#   - shellcheck        : shellcheck across all *.sh files
+#   - secrets           : gitleaks detect --redact on the PR diff
+#   - commitlint        : Conventional Commits on PR title and each commit
+#
+# CodeQL is a separate, scheduled workflow (`codeql.yml`) and is not
+# gating in this phase. See `docs/branch-protection.md` for the full
+# branch-protection ruleset.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Cancel superseded runs for the same PR so the queue doesn't pile up.
+# The default-branch run uses `github.run_id` so pushes never cancel
+# each other.
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend: Python lint, format check, types, and tests against a real
+  # Postgres+pgvector service container so vector queries can be exercised.
+  # ---------------------------------------------------------------------------
+  backend:
+    name: backend (lint, types, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: raggo_test
+          POSTGRES_USER: raggo
+          POSTGRES_PASSWORD: raggo_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U raggo -d raggo_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Used by the test suite (when one exists) to connect to the
+      # service container above.
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: raggo_test
+      POSTGRES_USER: raggo
+      POSTGRES_PASSWORD: raggo_test_password
+      DATABASE_URL: postgresql+psycopg://raggo:raggo_test_password@localhost:5432/raggo_test
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Checkout
+        # `fetch-depth: 0` is needed by `diff-cover` to compare against
+        # the merge base on the default branch.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # Built-in pip caching keyed on the requirements lockfiles.
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            .github/workflows/ci.yml
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Application runtime deps (FastAPI, SQLAlchemy, pgvector, …).
+          pip install -r backend/requirements.txt
+          # CI tooling. Versions are pinned conservatively to match the
+          # pre-commit configuration where possible.
+          pip install \
+            "ruff==0.15.12" \
+            "mypy==1.13.0" \
+            "pytest==8.3.3" \
+            "pytest-cov==5.0.0" \
+            "diff-cover==9.2.0"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy --config-file pyproject.toml
+
+      - name: Pytest with coverage
+        id: pytest
+        # The repository does not yet ship a backend test suite (tests
+        # arrive in Phase 3). Treat "no tests collected" (exit code 5)
+        # as success so this gate stays green until tests exist; any
+        # other failure mode still fails the build.
+        run: |
+          set +e
+          pytest \
+            --cov=backend/app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term \
+            backend
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "tests_ran=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -eq 5 ]; then
+            echo "::notice::No backend tests collected yet; skipping coverage threshold."
+            echo "tests_ran=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            exit "$rc"
+          fi
+
+      - name: Coverage on changed files (diff-cover)
+        # Only meaningful on PRs and only when tests actually ran. The
+        # threshold is sourced from `[tool.diff-cover]` in
+        # pyproject.toml.
+        if: >-
+          github.event_name == 'pull_request' &&
+          steps.pytest.outputs.tests_ran == 'true'
+        run: |
+          diff-cover coverage.xml \
+            --config-file pyproject.toml \
+            --compare-branch origin/${{ github.base_ref }}
+
+  # ---------------------------------------------------------------------------
+  # Frontend: lint, type-check, tests, and an advisory dependency audit.
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: frontend (lint, types, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # Built-in npm caching keyed on the lockfile.
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Vitest with coverage
+        run: npm run test -- --coverage
+
+      - name: npm audit (advisory)
+        # `--omit=dev` is the supported npm v9+ form. This step is
+        # advisory in Phase 2: vulnerabilities are reported but do not
+        # fail the build. Container/dep gating is promoted in Phase 6.
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+  # ---------------------------------------------------------------------------
+  # Compose validation: catches typos and schema drift in both the
+  # default and GPU overlays. `docker compose config` resolves variable
+  # interpolation and validates the merged document.
+  # ---------------------------------------------------------------------------
+  compose-validate:
+    name: compose validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate default Compose file
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate Compose with GPU overlay
+        run: docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+
+  # ---------------------------------------------------------------------------
+  # Shellcheck across all tracked `*.sh` files.
+  # ---------------------------------------------------------------------------
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          # Honour repo-level shellcheck configuration.
+          SHELLCHECK_OPTS: ""
+        with:
+          severity: warning
+          scandir: "."
+          additional_files: ""
+
+  # ---------------------------------------------------------------------------
+  # Secret scanning: gitleaks runs on the PR diff with `--redact` so
+  # any matched values are not echoed into job logs. Native GitHub
+  # secret scanning remains enabled and is independent of this job.
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can diff PR commits.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use the repository configuration and redact any matched
+          # values in logs.
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+          GITLEAKS_NOTIFY_USER_LIST: ""
+          # `--redact` is set via the action's default args.
+
+  # ---------------------------------------------------------------------------
+  # Commit hygiene: run commitlint against the PR title and against
+  # each commit in the PR. On push events, validate the latest commit
+  # message only.
+  # ---------------------------------------------------------------------------
+  commitlint:
+    name: commitlint (Conventional Commits)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install commitlint
+        run: |
+          npm install --no-save --no-package-lock \
+            @commitlint/cli@19.5.0 \
+            @commitlint/config-conventional@19.5.0
+
+      - name: Lint PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$PR_TITLE" | npx --no -- commitlint --config commitlint.config.js
+
+      - name: Lint commit messages in range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FROM="$BASE_SHA"
+            TO="$HEAD_SHA"
+          else
+            # Push event: lint just the head commit.
+            FROM="${{ github.event.before }}"
+            TO="${{ github.sha }}"
+            # `before` can be all-zeroes for a brand-new branch push;
+            # fall back to HEAD~1 in that case.
+            if [ "$FROM" = "0000000000000000000000000000000000000000" ] || [ -z "$FROM" ]; then
+              FROM="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+            fi
+          fi
+          echo "Linting commits ${FROM}..${TO}"
+          npx --no -- commitlint \
+            --config commitlint.config.js \
+            --from "$FROM" --to "$TO"
