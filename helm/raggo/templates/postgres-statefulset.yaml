@@ -6,11 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "postgres") | nindent 4 }}
-  annotations:
-    # Postgres writes to its data directory; the chart provides
-    # restricted seccomp/caps but the root filesystem cannot be
-    # read-only without breaking the official postgres image.
-    ignore-check.kube-linter.io/no-read-only-root-fs: "postgres requires a writable data dir"
+  {{- $localAnnotations := dict "ignore-check.kube-linter.io/no-read-only-root-fs" "postgres requires a writable data dir" }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" $localAnnotations) | nindent 2 }}
 spec:
   replicas: 1
   serviceName: {{ include "raggo.componentName" (dict "ctx" $ "component" "postgres") }}

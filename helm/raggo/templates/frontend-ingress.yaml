@@ -6,10 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "frontend") | nindent 4 }}
-  {{- with .Values.frontend.ingress.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" .Values.frontend.ingress.annotations) | nindent 2 }}
 spec:
   {{- with .Values.frontend.ingress.className }}
   ingressClassName: {{ . | quote }}

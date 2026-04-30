@@ -109,6 +109,12 @@ spec:
         - podSelector:
             matchLabels:
               {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "frontend") | nindent 14 }}
+        # `helm test` runs a separate Pod that probes /health and /domain
+        # on the backend service. Without this rule the default-deny
+        # policy blocks the probe.
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "test") | nindent 14 }}
       ports:
         - protocol: TCP
           port: 8000
@@ -221,4 +227,80 @@ spec:
         - protocol: TCP
           port: {{ .Values.generationModel.service.port }}
   # No egress.
+{{- if not .Values.postgres.external.enabled }}
+---
+# Helm hook Jobs (migrate/seed) run under the namespace default-deny
+# policy at upgrade time (the hooks themselves are also created at
+# install time, but that runs before any NetworkPolicy is applied).
+# Give them the minimum egress they need to reach Postgres so
+# `helm upgrade` behaves the same as `helm install`.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "hooks-to-postgres") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - {{ include "raggo.name" . }}
+      - key: app.kubernetes.io/instance
+        operator: In
+        values:
+          - {{ .Release.Name }}
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - migrate
+          - seed
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "postgres") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.internal.service.port }}
+{{- end }}
+---
+# `helm test` pod is separate from the long-running workloads. Under
+# default-deny it needs explicit egress to the backend (for the HTTP
+# probe) and to Postgres (the `app.cli check` connectivity probe). It
+# also already gets DNS via the shared `allow-dns` policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "test-egress") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "test") | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "backend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8000
+    {{- if not .Values.postgres.external.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "postgres") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.internal.service.port }}
+    {{- end }}
 {{- end -}}

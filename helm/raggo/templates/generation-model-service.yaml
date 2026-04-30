@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "generation-model") | nindent 4 }}
+  {{- include "raggo.annotationsBlock" $ | nindent 2 }}
 spec:
   type: {{ .Values.generationModel.service.type }}
   ports:

@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "frontend") | nindent 4 }}
+  {{- include "raggo.annotationsBlock" $ | nindent 2 }}
 spec:
   replicas: {{ .Values.frontend.replicas }}
   selector:

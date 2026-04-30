@@ -205,17 +205,23 @@
       },
       "allOf": [
         {
-          "comment": "Exactly one secret mode: create OR reference existingName.",
-          "if": {
-            "properties": { "create": { "const": false } },
-            "required": ["create"]
-          },
-          "then": {
-            "required": ["existingName"],
-            "properties": {
-              "existingName": { "type": "string", "minLength": 1 }
+          "comment": "Exactly one secret mode: chart-managed (create=true with no existingName) OR bring-your-own (create=false with a non-empty existingName).",
+          "oneOf": [
+            {
+              "properties": {
+                "create": { "const": true },
+                "existingName": { "type": "string", "maxLength": 0 }
+              },
+              "required": ["create"]
+            },
+            {
+              "properties": {
+                "create": { "const": false },
+                "existingName": { "type": "string", "minLength": 1 }
+              },
+              "required": ["create", "existingName"]
             }
-          }
+          ]
         }
       ]
     },

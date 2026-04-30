@@ -6,13 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "migrate") | nindent 4 }}
-  annotations:
-    # Run before the workloads come up on both fresh installs and
-    # upgrades so the schema (pgvector + active domain pack) is always
-    # in place before the backend Deployment rolls.
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-5"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  {{- $hookAnnotations := dict "helm.sh/hook" "pre-install,pre-upgrade" "helm.sh/hook-weight" "-5" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" $hookAnnotations) | nindent 2 }}
 spec:
   backoffLimit: {{ .Values.migrate.backoffLimit }}
   ttlSecondsAfterFinished: {{ .Values.migrate.ttlSecondsAfterFinished }}

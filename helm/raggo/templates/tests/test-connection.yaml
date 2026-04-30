@@ -5,10 +5,8 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "test") | nindent 4 }}
-  annotations:
-    # `helm test` only runs pods carrying this hook annotation.
-    "helm.sh/hook": test
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  {{- $hookAnnotations := dict "helm.sh/hook" "test" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" $hookAnnotations) | nindent 2 }}
 spec:
   restartPolicy: Never
   serviceAccountName: {{ include "raggo.serviceAccountName" . }}

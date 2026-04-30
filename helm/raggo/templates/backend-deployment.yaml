@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "backend") | nindent 4 }}
+  {{- include "raggo.annotationsBlock" $ | nindent 2 }}
 spec:
   replicas: {{ .Values.backend.replicas }}
   selector:
@@ -18,8 +19,14 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
-        # Roll the deployment when the ConfigMap or Secret changes so a
-        # `helm upgrade --reuse-values` actually picks up new env vars.
+        # Roll the deployment when the rendered chart-managed ConfigMap
+        # or Secret changes. This only tracks resources rendered by this
+        # chart: when `secret.create=false` (or `postgres.external` is
+        # used to reference an existing Secret), `templates/secret.yaml`
+        # renders empty and rotating the referenced Secret will not
+        # change this checksum or trigger a rollout on
+        # `helm upgrade --reuse-values`. Operators handling external
+        # Secrets should restart the backend out-of-band.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- with .Values.backend.podAnnotations }}

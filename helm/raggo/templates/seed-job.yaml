@@ -10,10 +10,8 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "seed") | nindent 4 }}
-  annotations:
-    "helm.sh/hook": {{ join "," $hooks }}
-    "helm.sh/hook-weight": "10"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  {{- $hookAnnotations := dict "helm.sh/hook" (join "," $hooks) "helm.sh/hook-weight" "10" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" $hookAnnotations) | nindent 2 }}
 spec:
   backoffLimit: {{ .Values.seed.backoffLimit }}
   ttlSecondsAfterFinished: {{ .Values.seed.ttlSecondsAfterFinished }}

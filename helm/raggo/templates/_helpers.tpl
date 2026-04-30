@@ -79,10 +79,53 @@ app.kubernetes.io/instance: {{ .ctx.Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
-{{/* Common annotations from `global.commonAnnotations`. */}}
+{{/*
+Common annotations from `global.commonAnnotations`, optionally merged
+with per-resource annotations. Returns just the YAML mapping (no
+`annotations:` key), suitable for embedding inside an existing
+metadata.annotations block.
+
+Per-resource annotations win on key conflict.
+
+Usage:
+  {{ include "raggo.annotations" . }}                                  # legacy: global only
+  {{ include "raggo.annotations" (dict "ctx" $ "annotations" $local) }} # global + local
+*/}}
 {{- define "raggo.annotations" -}}
-{{- with .Values.global.commonAnnotations }}
-{{ toYaml . }}
+{{- $ctx := . -}}
+{{- $local := dict -}}
+{{- if hasKey . "ctx" -}}
+{{- $ctx = .ctx -}}
+{{- $local = default dict .annotations -}}
+{{- end -}}
+{{- $global := default dict $ctx.Values.global.commonAnnotations -}}
+{{- $merged := merge (deepCopy $local) $global -}}
+{{- if $merged -}}
+{{ toYaml $merged }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Render a complete `annotations:` block for resource metadata, including
+the `annotations:` key itself. Emits nothing when there are no
+annotations to set, so it can be dropped into any metadata block.
+
+Usage:
+  metadata:
+    {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" .Values.foo.annotations) | nindent 2 }}
+*/}}
+{{- define "raggo.annotationsBlock" -}}
+{{- $ctx := . -}}
+{{- $local := dict -}}
+{{- if hasKey . "ctx" -}}
+{{- $ctx = .ctx -}}
+{{- $local = default dict .annotations -}}
+{{- end -}}
+{{- $global := default dict $ctx.Values.global.commonAnnotations -}}
+{{- $merged := merge (deepCopy $local) $global -}}
+{{- if $merged }}
+annotations:
+  {{- toYaml $merged | nindent 2 }}
 {{- end -}}
 {{- end -}}
 

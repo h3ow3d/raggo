@@ -6,6 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.componentLabels" (dict "ctx" $ "component" "postgres") | nindent 4 }}
+  {{- include "raggo.annotationsBlock" $ | nindent 2 }}
 spec:
   type: ClusterIP
   # Headless service so each StatefulSet replica has a stable DNS name

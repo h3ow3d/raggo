@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "raggo.labels" . | nindent 4 }}
+  {{- include "raggo.annotationsBlock" $ | nindent 2 }}
 data:
   # Backend tunables (mirrors the Compose `environment:` block).
   EMBEDDING_MODEL_NAME: {{ .Values.backend.env.embeddingModelName | quote }}
