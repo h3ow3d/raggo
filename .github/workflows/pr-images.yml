@@ -19,8 +19,12 @@ on:
       - "frontend/**"
       - "db/**"
       - "models/**"
+      # Chart and helm-ci changes also need fresh per-commit images so
+      # the kind smoke install in `helm-ci.yml` has something to pull.
+      - "helm/**"
       - ".github/workflows/build-images.yml"
       - ".github/workflows/pr-images.yml"
+      - ".github/workflows/helm-ci.yml"
 
 # Cancel superseded PR builds for the same head ref to avoid spending
 # runner minutes on stale revisions.

@@ -175,17 +175,72 @@ jobs:
           cluster_name: raggo-helm-ci
           wait: 120s
 
+      - name: Resolve image tag for the current commit
+        # The chart's default image tag (`v0.1.0-placeholder`) is not
+        # published; the smoke install must use the per-commit tag that
+        # `pr-images.yml` / `build-images.yml` push to GHCR. For pull
+        # requests `${{ github.sha }}` is the merge commit, which is
+        # exactly the SHA those workflows tag images with.
+        id: image_tag
+        run: |
+          set -euo pipefail
+          short_sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "sha_tag=sha-${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: sha-${short_sha}"
+
+      - name: Wait for component images to be published to GHCR
+        # `pr-images.yml` (or `build-images.yml` on push) builds and
+        # pushes each component image in parallel with this workflow.
+        # Poll the registry for all four images so we don't race the
+        # build job and end up with `ImagePullBackOff` during
+        # `helm install --wait`.
+        env:
+          SHA_TAG: ${{ steps.image_tag.outputs.sha_tag }}
+        run: |
+          set -euo pipefail
+          components=(backend frontend embedding-model generation-model postgres-pgvector)
+          deadline=$(( $(date +%s) + 1500 ))
+          for component in "${components[@]}"; do
+            ref="ghcr.io/h3ow3d/raggo/${component}:${SHA_TAG}"
+            echo "Waiting for ${ref}"
+            while :; do
+              token="$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:h3ow3d/raggo/${component}:pull" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')"
+              status=$(curl -s -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Bearer ${token}" \
+                -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.index.v1+json" \
+                "https://ghcr.io/v2/h3ow3d/raggo/${component}/manifests/${SHA_TAG}")
+              if [ "${status}" = "200" ]; then
+                echo "  ✓ ${ref}"
+                break
+              fi
+              if [ "$(date +%s)" -ge "${deadline}" ]; then
+                echo "::error::Timed out waiting for ${ref} (last HTTP ${status})"
+                exit 1
+              fi
+              sleep 15
+            done
+          done
+
       - name: Helm install
         # Smoke install with the chart defaults plus a fixed Postgres
         # password so we don't depend on the random-password helper for
-        # debug output. The `--wait` flag blocks until every workload
-        # is Ready or the install fails.
+        # debug output. Image tags are overridden to the per-commit
+        # GHCR tag (the chart default is a placeholder). The `--wait`
+        # flag blocks until every workload is Ready or the install
+        # fails.
+        env:
+          SHA_TAG: ${{ steps.image_tag.outputs.sha_tag }}
         run: |
           set -euo pipefail
           kubectl create namespace raggo
           helm install raggo "${CHART_DIR}" \
             --namespace raggo \
             --set secret.values.postgresPassword=ci-test-password \
+            --set backend.image.tag="${SHA_TAG}" \
+            --set frontend.image.tag="${SHA_TAG}" \
+            --set embeddingModel.image.tag="${SHA_TAG}" \
+            --set generationModel.image.tag="${SHA_TAG}" \
+            --set postgres.internal.image.tag="${SHA_TAG}" \
             --wait --timeout 20m
 
       - name: Show cluster state
