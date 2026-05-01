@@ -1,0 +1,259 @@
+# Phase 4 — Helm chart CI.
+#
+# Runs on every PR or push that touches `helm/` (or this workflow). It
+# enforces the chart's quality gates locally and against a real kind
+# cluster:
+#
+#   - `helm lint helm/raggo`
+#   - render every CI values file and run `kubeconform` over the
+#     output; rendering also validates `values.schema.json`
+#   - `kube-linter` for security/best-practice findings
+#   - schema regression: confirm a known-bad values file fails to
+#     render (e.g. `:latest` tag)
+#   - kind-based smoke install: `helm install`, `helm test`, teardown
+#
+# Image references in the chart default to `ghcr.io/h3ow3d/raggo/*`
+# which are public, so the kind smoke test does not need an image
+# pull secret.
+
+name: helm-ci
+
+on:
+  pull_request:
+    paths:
+      - "helm/**"
+      - ".github/workflows/helm-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "helm/**"
+      - ".github/workflows/helm-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CHART_DIR: helm/raggo
+  HELM_VERSION: v3.16.2
+  KUBECONFORM_VERSION: v0.6.7
+  KUBE_LINTER_VERSION: v0.7.2
+  KIND_VERSION: v0.24.0
+  KIND_NODE_IMAGE: kindest/node:v1.31.0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lint, render, kubeconform, kube-linter, and a schema regression check.
+  # All runs in a single job so the rendered manifests can be reused.
+  # ---------------------------------------------------------------------------
+  lint-and-render:
+    name: lint, render, kubeconform, kube-linter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin kubeconform
+          kubeconform -v
+
+      - name: Install kube-linter
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/stackrox/kube-linter/releases/download/${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz" \
+            | tar -xz -C /usr/local/bin kube-linter
+          kube-linter version
+
+      - name: Helm lint
+        run: helm lint "${CHART_DIR}"
+
+      - name: Render minimal values
+        run: |
+          mkdir -p rendered
+          helm template raggo "${CHART_DIR}" \
+            -f "${CHART_DIR}/ci/values-minimal.yaml" \
+            > rendered/minimal.yaml
+
+      - name: Render prod values
+        run: |
+          helm template raggo "${CHART_DIR}" \
+            -f "${CHART_DIR}/ci/values-prod.yaml" \
+            > rendered/prod.yaml
+
+      - name: Render airgapped values
+        run: |
+          helm template raggo "${CHART_DIR}" \
+            -f "${CHART_DIR}/ci/values-airgapped.yaml" \
+            --set global.image.registry=registry.local/raggo \
+            > rendered/airgapped.yaml
+
+      - name: kubeconform
+        run: |
+          kubeconform -strict -summary -ignore-missing-schemas \
+            rendered/minimal.yaml rendered/prod.yaml rendered/airgapped.yaml
+
+      - name: kube-linter
+        # `--do-not-auto-add-defaults` keeps the run reproducible across
+        # kube-linter releases; we add only the checks we care about.
+        run: |
+          kube-linter lint rendered/ \
+            --do-not-auto-add-defaults \
+            --include no-read-only-root-fs,run-as-non-root,deprecated-service-account-field,host-network,host-pid,host-ipc,privileged-container,privilege-escalation-container,drop-net-raw-capability,unset-cpu-requirements,unset-memory-requirements,latest-tag,no-extensions-v1beta,unsafe-sysctls
+
+      - name: Schema regression — reject `:latest`
+        # If this command exits 0 the schema has regressed.
+        run: |
+          set +e
+          tmp="$(mktemp)"
+          cat > "$tmp" <<'EOF'
+          backend:
+            image:
+              tag: latest
+          EOF
+          helm template raggo "${CHART_DIR}" -f "$tmp" > /dev/null 2>&1
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::values.schema.json failed to reject ':latest' tag"
+            exit 1
+          fi
+          echo "OK: schema rejected ':latest'"
+
+      - name: Schema regression — reject `Always` pull policy
+        run: |
+          set +e
+          tmp="$(mktemp)"
+          cat > "$tmp" <<'EOF'
+          global:
+            image:
+              pullPolicy: Always
+          EOF
+          helm template raggo "${CHART_DIR}" -f "$tmp" > /dev/null 2>&1
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::values.schema.json failed to reject pullPolicy=Always"
+            exit 1
+          fi
+          echo "OK: schema rejected Always pullPolicy"
+
+  # ---------------------------------------------------------------------------
+  # Spin up a kind cluster, install the chart, run `helm test`, tear down.
+  # ---------------------------------------------------------------------------
+  kind-install:
+    name: kind install + helm test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: lint-and-render
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          version: ${{ env.KIND_VERSION }}
+          node_image: ${{ env.KIND_NODE_IMAGE }}
+          cluster_name: raggo-helm-ci
+          wait: 120s
+
+      - name: Resolve image tag for the current commit
+        # The chart's default image tag (`v0.1.0-placeholder`) is not
+        # published; the smoke install must use the per-commit tag that
+        # `pr-images.yml` / `build-images.yml` push to GHCR. For pull
+        # requests `${{ github.sha }}` is the merge commit, which is
+        # exactly the SHA those workflows tag images with.
+        id: image_tag
+        run: |
+          set -euo pipefail
+          short_sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "sha_tag=sha-${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: sha-${short_sha}"
+
+      - name: Wait for component images to be published to GHCR
+        # `pr-images.yml` (or `build-images.yml` on push) builds and
+        # pushes each component image in parallel with this workflow.
+        # Poll the registry for all four images so we don't race the
+        # build job and end up with `ImagePullBackOff` during
+        # `helm install --wait`.
+        env:
+          SHA_TAG: ${{ steps.image_tag.outputs.sha_tag }}
+        run: |
+          set -euo pipefail
+          components=(backend frontend embedding-model generation-model postgres-pgvector)
+          deadline=$(( $(date +%s) + 1500 ))
+          for component in "${components[@]}"; do
+            ref="ghcr.io/h3ow3d/raggo/${component}:${SHA_TAG}"
+            echo "Waiting for ${ref}"
+            while :; do
+              token="$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:h3ow3d/raggo/${component}:pull" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')"
+              status=$(curl -s -o /dev/null -w '%{http_code}' \
+                -H "Authorization: Bearer ${token}" \
+                -H "Accept: application/vnd.docker.distribution.manifest.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.index.v1+json" \
+                "https://ghcr.io/v2/h3ow3d/raggo/${component}/manifests/${SHA_TAG}")
+              if [ "${status}" = "200" ]; then
+                echo "  ✓ ${ref}"
+                break
+              fi
+              if [ "$(date +%s)" -ge "${deadline}" ]; then
+                echo "::error::Timed out waiting for ${ref} (last HTTP ${status})"
+                exit 1
+              fi
+              sleep 15
+            done
+          done
+
+      - name: Helm install
+        # Smoke install with the chart defaults plus a fixed Postgres
+        # password so we don't depend on the random-password helper for
+        # debug output. Image tags are overridden to the per-commit
+        # GHCR tag (the chart default is a placeholder). The `--wait`
+        # flag blocks until every workload is Ready or the install
+        # fails.
+        env:
+          SHA_TAG: ${{ steps.image_tag.outputs.sha_tag }}
+        run: |
+          set -euo pipefail
+          kubectl create namespace raggo
+          helm install raggo "${CHART_DIR}" \
+            --namespace raggo \
+            --set secret.values.postgresPassword=ci-test-password \
+            --set backend.image.tag="${SHA_TAG}" \
+            --set frontend.image.tag="${SHA_TAG}" \
+            --set embeddingModel.image.tag="${SHA_TAG}" \
+            --set generationModel.image.tag="${SHA_TAG}" \
+            --set postgres.internal.image.tag="${SHA_TAG}" \
+            --wait --timeout 20m
+
+      - name: Show cluster state
+        if: always()
+        run: |
+          kubectl get -n raggo all,pvc,networkpolicy,secret,configmap -o wide || true
+          kubectl describe -n raggo pods || true
+
+      - name: Helm test
+        run: helm test raggo --namespace raggo --timeout 5m
+
+      - name: Helm uninstall
+        if: always()
+        run: |
+          helm uninstall raggo --namespace raggo --wait || true
+          kubectl delete namespace raggo --wait=false || true

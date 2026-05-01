@@ -1,0 +1,37 @@
+# GPU overlay for the raggo chart.
+#
+# Usage:
+#   helm install raggo ./helm/raggo -f values-gpu.yaml
+#
+# Mirrors `docker-compose.gpu.yml`: only the generation-model service
+# requests a GPU. The embedding-model stays CPU-first because the
+# default sentence-transformers model is small and already fast on CPU.
+#
+# This overlay assumes the cluster has the NVIDIA device plugin (or
+# equivalent) installed and that the generation-model GPU image variant
+# has been published to the same registry as the CPU image, with a
+# `-gpu` tag suffix or a different `repository`. Override either field
+# below to match your release pipeline.
+
+generationModel:
+  image:
+    # Default convention: same registry, sibling repository for the GPU
+    # variant. Adjust to whatever the release pipeline produces.
+    repository: generation-model-gpu
+    # Pin by digest in production; the tag is only a fallback.
+    digest: ""
+    tag: "v0.1.0-placeholder"
+  gpu:
+    enabled: true
+    # Set to e.g. `nvidia` if your cluster uses a custom RuntimeClass.
+    runtimeClassName: ""
+    count: 1
+  resources:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "8"
+      memory: 16Gi
+      nvidia.com/gpu: "1"

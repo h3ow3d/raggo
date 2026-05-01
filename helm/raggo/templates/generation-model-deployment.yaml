@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "generation-model") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "generation-model") | nindent 4 }}
+  {{- include "raggo.annotationsBlock" $ | nindent 2 }}
+spec:
+  replicas: {{ .Values.generationModel.replicas }}
+  selector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "generation-model") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "raggo.componentLabels" (dict "ctx" $ "component" "generation-model") | nindent 8 }}
+        {{- with .Values.generationModel.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the deployment when the chart-managed ConfigMap changes
+        # so a `helm upgrade --reuse-values` actually picks up new env
+        # vars (e.g. `GEN_TIMEOUT_SECONDS`, offline flags).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.generationModel.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "raggo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "raggo.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "raggo.podSecurityContext" . | nindent 8 }}
+      {{- if and .Values.generationModel.gpu.enabled .Values.generationModel.gpu.runtimeClassName }}
+      runtimeClassName: {{ .Values.generationModel.gpu.runtimeClassName | quote }}
+      {{- end }}
+      {{- with .Values.generationModel.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.generationModel.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.generationModel.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: generation-model
+          image: {{ include "raggo.image" (dict "ctx" $ "image" .Values.generationModel.image) }}
+          imagePullPolicy: {{ include "raggo.imagePullPolicy" (dict "ctx" $ "image" .Values.generationModel.image) }}
+          securityContext:
+            {{- include "raggo.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "raggo.componentName" (dict "ctx" $ "component" "config") }}
+          env:
+            - name: GENERATION_MODEL_DIR
+              value: /models/generation
+            {{- if .Values.generationModel.gpu.enabled }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            - name: MODEL_RUNTIME
+              value: gpu
+            {{- end }}
+          startupProbe:
+            {{- toYaml .Values.generationModel.startupProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.generationModel.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.generationModel.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.generationModel.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: hf-cache
+              mountPath: /home/appuser/.cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: hf-cache
+          emptyDir: {}

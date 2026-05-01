@@ -1,0 +1,56 @@
+{{- if .Values.seed.enabled -}}
+{{- $hooks := list "post-install" -}}
+{{- if .Values.seed.postUpgrade -}}
+  {{- $hooks = append $hooks "post-upgrade" -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "seed") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "seed") | nindent 4 }}
+  {{- $hookAnnotations := dict "helm.sh/hook" (join "," $hooks) "helm.sh/hook-weight" "10" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" $hookAnnotations) | nindent 2 }}
+spec:
+  backoffLimit: {{ .Values.seed.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.seed.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "raggo.componentLabels" (dict "ctx" $ "component" "seed") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "raggo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "raggo.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "raggo.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: seed
+          image: {{ include "raggo.image" (dict "ctx" $ "image" .Values.backend.image) }}
+          imagePullPolicy: {{ include "raggo.imagePullPolicy" (dict "ctx" $ "image" .Values.backend.image) }}
+          securityContext:
+            {{- include "raggo.containerSecurityContext" . | nindent 12 }}
+          # `app.cli seed` is a no-op when the active domain pack
+          # already contains data, so re-running it (e.g. on
+          # post-upgrade) is safe.
+          command:
+            - python
+            - -m
+            - app.cli
+            - seed
+          envFrom:
+            - configMapRef:
+                name: {{ include "raggo.componentName" (dict "ctx" $ "component" "config") }}
+          env:
+            {{- include "raggo.databaseEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.seed.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end -}}

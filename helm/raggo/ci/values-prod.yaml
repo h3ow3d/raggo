@@ -1,0 +1,41 @@
+# Production-leaning CI values. Exercises:
+#   - external Postgres mode (chart references an existing Secret)
+#   - `secret.create=false` referencing a pre-provisioned Secret
+#   - tighter resource ceilings
+#   - Ingress enabled with a hostname
+#
+# Used by `helm template … | kubeconform` to verify the prod-style
+# install path stays valid.
+
+backend:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+frontend:
+  replicas: 2
+  ingress:
+    enabled: true
+    className: nginx
+    host: raggo.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls:
+      - secretName: raggo-tls
+        hosts:
+          - raggo.example.com
+
+postgres:
+  external:
+    enabled: true
+    existingSecret: raggo-postgres-url
+    secretKey: url
+
+secret:
+  create: false
+  existingName: raggo-app-secrets

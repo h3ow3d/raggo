@@ -1,0 +1,377 @@
+# Default values for the raggo Helm chart.
+#
+# This file is intentionally verbose. Every knob is commented so an
+# operator reading `values.yaml` alone can understand what the chart
+# does without cross-referencing the README.
+#
+# See `values.schema.json` for the strict JSON Schema that gates these
+# values at install/upgrade time. Notably:
+#   - image tags equal to `latest` are rejected.
+#   - `imagePullPolicy: Always` is rejected.
+#   - exactly one secret mode (`secret.create` vs referencing an
+#     existing secret) must be selected.
+
+# -----------------------------------------------------------------------------
+# Global settings shared by every component.
+# -----------------------------------------------------------------------------
+global:
+  image:
+    # Registry prefix for ALL component images. Override in air-gap
+    # mirrors via `--set global.image.registry=registry.local/raggo`.
+    registry: ghcr.io/h3ow3d/raggo
+    # Default `imagePullPolicy`. Must not be `Always` (schema-enforced).
+    pullPolicy: IfNotPresent
+    # No pull secrets are required by default because the GHCR packages
+    # are public. Kept as a list so operators can plug a private mirror
+    # in without forking the chart.
+    pullSecrets: []
+  # Optional name overrides applied across all rendered objects. Empty
+  # values fall back to the chart name / release name combination.
+  nameOverride: ""
+  fullnameOverride: ""
+  # Common labels merged into every rendered object.
+  commonLabels: {}
+  # Common annotations merged into every rendered object.
+  commonAnnotations: {}
+
+# -----------------------------------------------------------------------------
+# Domain selection. Mirrors `RAGGO_DOMAIN` from the Compose stack.
+# -----------------------------------------------------------------------------
+domain: flights
+
+# -----------------------------------------------------------------------------
+# Service account. A single SA backs every workload but
+# `automountServiceAccountToken` is left off for pods that don't talk
+# to the Kubernetes API (which is all of them in the default chart).
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Pod-level security context. Applied to every pod the chart manages.
+# Container-level overrides go on each component below.
+# -----------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+# -----------------------------------------------------------------------------
+# Container-level security defaults applied to every container the
+# chart manages. Per-component overrides are merged in by the
+# `raggo.containerSecurityContext` template helper.
+# -----------------------------------------------------------------------------
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -----------------------------------------------------------------------------
+# NetworkPolicies. Default-deny in the namespace plus explicit allows
+# matching the Compose `database_net`/`model_net`/`frontend_net`
+# topology. Disable only when running on a cluster without a CNI that
+# enforces NetworkPolicy (e.g. plain kind without Calico/Cilium).
+# -----------------------------------------------------------------------------
+networkPolicies:
+  enabled: true
+
+# -----------------------------------------------------------------------------
+# Backend API.
+# -----------------------------------------------------------------------------
+backend:
+  image:
+    repository: backend
+    # Pin by digest in production (e.g. `sha256:…`). When set, the digest
+    # is preferred over the tag and the resulting image reference is
+    # `${global.image.registry}/${repository}@${digest}`.
+    digest: ""
+    tag: "v0.1.0-placeholder"
+    pullPolicy: ""
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  # Equivalent of `STARTUP_INGEST_LIMIT` and friends from the Compose
+  # stack. Anything not listed here falls back to the backend's own
+  # defaults declared in `backend/app/core/config.py`.
+  env:
+    embeddingModelName: "sentence-transformers/all-MiniLM-L6-v2"
+    embeddingDim: "384"
+    generationModelName: "Qwen/Qwen2.5-0.5B-Instruct"
+    agentMaxNewTokens: "256"
+    embeddingRequestTimeout: "60"
+    generationRequestTimeout: "360"
+    ingestBatchSize: "128"
+    startupIngestLimit: "2000"
+    corsAllowOrigins: "http://localhost:3000,http://127.0.0.1:3000"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Probes are tuned for the FastAPI lifespan startup, which loads
+  # domain packs and waits for the embedding/generation services.
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    failureThreshold: 60
+    periodSeconds: 5
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    periodSeconds: 10
+    timeoutSeconds: 5
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    periodSeconds: 30
+    timeoutSeconds: 5
+
+# -----------------------------------------------------------------------------
+# Frontend SPA + nginx.
+# -----------------------------------------------------------------------------
+frontend:
+  image:
+    repository: frontend
+    digest: ""
+    tag: "v0.1.0-placeholder"
+    pullPolicy: ""
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+    className: ""
+    host: raggo.local
+    path: /
+    pathType: Prefix
+    tls: []
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # nginx with `readOnlyRootFilesystem` needs writable /var/cache/nginx
+  # and /var/run for its worker processes. The chart injects emptyDir
+  # volumes automatically; nothing to configure here.
+
+# -----------------------------------------------------------------------------
+# Embedding model service. Bound to the backend by NetworkPolicy.
+# -----------------------------------------------------------------------------
+embeddingModel:
+  image:
+    repository: embedding-model
+    digest: ""
+    tag: "v0.1.0-placeholder"
+    pullPolicy: ""
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    failureThreshold: 60
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    periodSeconds: 15
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    periodSeconds: 30
+
+# -----------------------------------------------------------------------------
+# Generation model service. CPU by default; switch to GPU with
+# `-f values-gpu.yaml`.
+# -----------------------------------------------------------------------------
+generationModel:
+  image:
+    repository: generation-model
+    digest: ""
+    tag: "v0.1.0-placeholder"
+    pullPolicy: ""
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  env:
+    genTimeoutSeconds: "300"
+    genDefaultMaxNewTokens: "256"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+  gpu:
+    enabled: false
+    # Optional `runtimeClassName` for GPU operator setups.
+    runtimeClassName: ""
+    # Number of GPU devices requested when `gpu.enabled: true`.
+    count: 1
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    failureThreshold: 90
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    periodSeconds: 15
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    periodSeconds: 30
+
+# -----------------------------------------------------------------------------
+# PostgreSQL with pgvector. Defaults to a chart-managed StatefulSet so
+# the chart has zero external dependencies (no Bitnami / community
+# subcharts). Set `postgres.external.enabled: true` to point at a
+# pre-provisioned database.
+# -----------------------------------------------------------------------------
+postgres:
+  external:
+    enabled: false
+    # Name of an existing Secret containing a Postgres connection URL
+    # in `${secretKey}`. The backend, migrate, and seed jobs read from
+    # this secret in external mode.
+    existingSecret: ""
+    secretKey: "url"
+  internal:
+    image:
+      repository: postgres-pgvector
+      digest: ""
+      tag: "v0.1.0-placeholder"
+      pullPolicy: ""
+    database: rag_flight_lab
+    user: rag
+    service:
+      port: 5432
+    storage:
+      size: 10Gi
+      storageClassName: ""
+      accessModes:
+        - ReadWriteOnce
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+# -----------------------------------------------------------------------------
+# Secret management.
+#
+# Exactly one mode must be selected (enforced by values.schema.json):
+#   - `secret.create: true`  → chart materialises a Secret from
+#     `secret.values.postgresPassword`. Useful for dev / kind.
+#   - `secret.create: false` → chart references an existing Secret by
+#     `secret.existingName` containing `postgresPassword` (and, for
+#     external Postgres, the connection URL keyed under
+#     `postgres.external.secretKey`).
+# -----------------------------------------------------------------------------
+secret:
+  create: true
+  existingName: ""
+  values:
+    # In dev / kind installs an empty password is auto-generated by the
+    # template helper at install time using `randAlphaNum 32`. Override
+    # with `--set secret.values.postgresPassword=…` for reproducible
+    # installs.
+    postgresPassword: ""
+
+# -----------------------------------------------------------------------------
+# Migrate hook (pre-install + pre-upgrade).
+# -----------------------------------------------------------------------------
+migrate:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Helm hook tuning. `hook-delete-policy` keeps the last failed job
+  # around for debugging; successful jobs are cleaned up before the
+  # next hook fires.
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 300
+
+# -----------------------------------------------------------------------------
+# Seed hook (post-install; optionally post-upgrade).
+# -----------------------------------------------------------------------------
+seed:
+  enabled: true
+  postUpgrade: false
+  env:
+    seedFlightCount: "5000"
+    seedLogCount: "50000"
+    seedIncidentCount: "500"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 300

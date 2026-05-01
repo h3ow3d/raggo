@@ -1,0 +1,30 @@
+apiVersion: v2
+name: raggo
+description: |
+  Secure, local-first agentic RAG system with pluggable domain packs.
+  Installs the full raggo stack — backend API, frontend SPA, PostgreSQL
+  with pgvector, and isolated embedding/generation model services — on
+  Kubernetes with Compose-equivalent capability and security posture.
+type: application
+# Chart version follows the chart itself; appVersion tracks the raggo
+# release version. Both are bumped together by the release workflow
+# (Phase 6) but `helm lint` requires sane defaults here.
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/h3ow3d/raggo
+sources:
+  - https://github.com/h3ow3d/raggo
+keywords:
+  - rag
+  - agent
+  - pgvector
+  - llm
+  - local-first
+maintainers:
+  - name: h3ow3d
+    url: https://github.com/h3ow3d
+icon: https://avatars.githubusercontent.com/u/0?v=4
+annotations:
+  category: AI
+  artifacthub.io/license: MIT

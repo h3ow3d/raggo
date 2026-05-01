@@ -1,0 +1,119 @@
+{{- if not .Values.postgres.external.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "raggo.componentName" (dict "ctx" $ "component" "postgres") }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "raggo.componentLabels" (dict "ctx" $ "component" "postgres") | nindent 4 }}
+  {{- $localAnnotations := dict "ignore-check.kube-linter.io/no-read-only-root-fs" "postgres requires a writable data dir" }}
+  {{- include "raggo.annotationsBlock" (dict "ctx" $ "annotations" $localAnnotations) | nindent 2 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "raggo.componentName" (dict "ctx" $ "component" "postgres") }}
+  selector:
+    matchLabels:
+      {{- include "raggo.selectorLabels" (dict "ctx" $ "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "raggo.componentLabels" (dict "ctx" $ "component" "postgres") | nindent 8 }}
+        {{- with .Values.postgres.internal.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.postgres.internal.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "raggo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- include "raggo.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "raggo.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.postgres.internal.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgres.internal.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgres.internal.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgres
+          image: {{ include "raggo.image" (dict "ctx" $ "image" .Values.postgres.internal.image) }}
+          imagePullPolicy: {{ include "raggo.imagePullPolicy" (dict "ctx" $ "image" .Values.postgres.internal.image) }}
+          securityContext:
+            # Postgres needs to write to its data directory and to a
+            # few in-image runtime paths, so the root filesystem is not
+            # read-only. Privilege escalation, capabilities, and
+            # seccomp are still locked down via the chart defaults.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.internal.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.internal.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "raggo.secretName" . }}
+                  key: postgresPassword
+            # The official postgres image refuses to run as a non-root
+            # UID unless `PGDATA` lives somewhere the runtime user
+            # owns. We point it at a subdirectory of the PVC so the
+            # init scripts can chown the path on first boot.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgres.internal.user | quote }}
+                - -d
+                - {{ .Values.postgres.internal.database | quote }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgres.internal.user | quote }}
+                - -d
+                - {{ .Values.postgres.internal.database | quote }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.postgres.internal.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.postgres.internal.storage.accessModes | nindent 10 }}
+        {{- if .Values.postgres.internal.storage.storageClassName }}
+        storageClassName: {{ .Values.postgres.internal.storage.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.internal.storage.size | quote }}
+{{- end -}}

@@ -47,6 +47,9 @@ EXEC_DRIVER_SQL_ALLOWLIST: frozenset[Tuple[str, str]] = frozenset(
         # main.py reads the domain pack's init.sql and runs it whole.
         # The argument is file content, not interpolated user input.
         ("backend/app/main.py", "exec_driver_sql"),
+        # cli.py runs the same domain init.sql logic from the migrate
+        # Helm hook. Same justification as main.py.
+        ("backend/app/cli.py", "exec_driver_sql"),
     }
 )
 
